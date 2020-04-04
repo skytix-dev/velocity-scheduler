@@ -1,5 +1,5 @@
 plugins {
-    id "io.freefair.lombok" version "3.2.0"
+    id "io.freefair.lombok" version "4.1.6"
     id "org.springframework.boot" version "2.1.8.RELEASE"
 }
 
@@ -10,6 +10,7 @@ apply plugin: 'java'
 
 
 repositories {
+    mavenLocal()
     mavenCentral()
     maven {
         url "https://plugins.gradle.org/m2/"
@@ -20,9 +21,14 @@ repositories {
 dependencies {
     compile ('org.springframework.boot:spring-boot-starter:2.1.8.RELEASE')
     compile ('org.springframework.boot:spring-boot-starter-web:2.1.8.RELEASE')
-    compile group: 'org.apache.mesos', name: 'mesos', version: '1.8.1'
+    compile group: 'org.apache.mesos', name: 'mesos', version: '1.9.0'
     compile group: 'org.apache.curator', name: 'curator-framework', version: '4.2.0'
     compile group: 'org.apache.commons', name: 'commons-lang3', version: '3.8.1'
+    compile group: 'au.com.skytix', name: 'mesos-scheduler-client', version: '1.0.3'
+    compile group: 'com.dieselpoint', name: 'norm', version: '0.8.5'
+    // https://mvnrepository.com/artifact/org.postgresql/postgresql
+    compile group: 'org.postgresql', name: 'postgresql', version: '42.2.9'
+
     testCompile group: 'junit', name: 'junit', version: '4.12'
     compile group: 'io.github.openfeign', name: 'feign-core', version: '10.2.0'
     compile group: 'io.github.openfeign', name: 'feign-jackson', version: '10.2.0'
@@ -30,8 +36,18 @@ dependencies {
     compile group: 'org.apache.httpcomponents', name: 'httpclient', version: '4.5.9'
     compile group: 'com.googlecode.protobuf-java-format', name: 'protobuf-java-format', version: '1.4'
 
+
     compile group: 'javax.activation', name: 'activation', version: '1.1.1'
     // https://mvnrepository.com/artifact/javax.xml.bind/jaxb-api
     compile group: 'javax.xml.bind', name: 'jaxb-api', version: '2.4.0-b180830.0359'
+    // https://mvnrepository.com/artifact/ch.qos.logback/logback-core
+    compile group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.3'
+    // https://mvnrepository.com/artifact/org.slf4j/slf4j-api
+    //compile group: 'org.slf4j', name: 'slf4j-log4j12', version: '1.7.29'
+    //compile group: 'org.slf4j', name: 'slf4j-simple', version: '1.7.29'
+
+
+
+
 
 }

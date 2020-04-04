@@ -1,18 +1,22 @@
 package com.skytix.velocity;
 
-import lombok.extern.log4j.Log4j2;
+import com.dieselpoint.norm.Database;
+import com.skytix.schedulerclient.SchedulerRemote;
+import com.skytix.velocity.scheduler.StandardSchedulerHandler;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
+import org.springframework.beans.factory.annotation.Lookup;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
-import org.springframework.core.task.TaskExecutor;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @SpringBootApplication
-@Log4j2
+@Slf4j
 public class VelocitySchedulerApplication {
 
     public static void main(String[] aArgs) {
@@ -24,12 +28,25 @@ public class VelocitySchedulerApplication {
 
     @Bean
     @Primary
-    public TaskExecutor taskExecutor() {
-        final ThreadPoolTaskExecutor taskExecutor = new ThreadPoolTaskExecutor();
+    public TaskScheduler taskExecutor() {
+        final ThreadPoolTaskScheduler threadPoolScheduler = new ThreadPoolTaskScheduler();
+        threadPoolScheduler.setPoolSize(4);
 
-        taskExecutor.setMaxPoolSize(4);
+        return threadPoolScheduler;
+    }
 
-        return taskExecutor;
+    @Bean
+    public Database database() {
+        final Database db = new Database();
+        db.setJdbcUrl("jdbc:postgresql://172.20.170.179:5432/postgres");
+        db.setUser("crate");
+
+        return db;
+    }
+
+    @Lookup
+    public SchedulerRemote schedulerRemote(StandardSchedulerHandler aEventHandler) {
+        return aEventHandler.getSchedulerRemote();
     }
 
 }
