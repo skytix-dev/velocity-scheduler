@@ -1,5 +1,6 @@
 package com.skytix.velocity.mesos;
 
+import com.skytix.schedulerclient.mesos.MesosConstants;
 import org.apache.mesos.v1.Protos;
 
 import java.util.List;
@@ -9,11 +10,11 @@ import static java.util.stream.Collectors.groupingBy;
 
 public class MesosUtils {
 
-    public static Protos.Resource getNamedResource(String aName, Protos.TaskInfo aTaskInfo) {
+    public static Protos.Resource getNamedResource(String aName, Protos.TaskInfoOrBuilder aTaskInfo) {
         return getResource(aName, aTaskInfo.getResourcesList());
     }
 
-    public static Protos.Resource getNamedResource(String aName, Protos.Offer aOffer) {
+    public static Protos.Resource getNamedResource(String aName, Protos.OfferOrBuilder aOffer) {
         return getResource(aName, aOffer.getResourcesList());
     }
 
@@ -30,7 +31,39 @@ public class MesosUtils {
         }
     }
 
-    public static double getNamedResourceScalar(String aName, Protos.Offer aOffer, double aDefaultValue) {
+    public static double getCpus(Protos.OfferOrBuilder aOffer, double aDefaultValue) {
+        return getNamedResourceScalar(MesosConstants.SCALAR_CPU, aOffer, aDefaultValue);
+    }
+
+    public static double getCpus(Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
+        return getNamedResourceScalar(MesosConstants.SCALAR_CPU, aTaskInfo, aDefaultValue);
+    }
+
+    public static double getGpus(Protos.OfferOrBuilder aOffer, double aDefaultValue) {
+        return getNamedResourceScalar(MesosConstants.SCALAR_GPU, aOffer, aDefaultValue);
+    }
+
+    public static double getGpus(Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
+        return getNamedResourceScalar(MesosConstants.SCALAR_GPU, aTaskInfo, aDefaultValue);
+    }
+
+    public static double getMem(Protos.OfferOrBuilder aOffer, double aDefaultValue) {
+        return getNamedResourceScalar(MesosConstants.SCALAR_MEM, aOffer, aDefaultValue);
+    }
+
+    public static double getMem(Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
+        return getNamedResourceScalar(MesosConstants.SCALAR_MEM, aTaskInfo, aDefaultValue);
+    }
+
+    public static double getDisk(Protos.OfferOrBuilder aOffer, double aDefaultValue) {
+        return getNamedResourceScalar(MesosConstants.SCALAR_DISK, aOffer, aDefaultValue);
+    }
+
+    public static double getDisk(Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
+        return getNamedResourceScalar(MesosConstants.SCALAR_DISK, aTaskInfo, aDefaultValue);
+    }
+
+    public static double getNamedResourceScalar(String aName, Protos.OfferOrBuilder aOffer, double aDefaultValue) {
         final Protos.Resource resource = getNamedResource(aName, aOffer);
 
         if (resource != null) {
@@ -42,7 +75,7 @@ public class MesosUtils {
 
     }
 
-    public static double getNamedResourceScalar(String aName, Protos.TaskInfo aTaskInfo, double aDefaultValue) {
+    public static double getNamedResourceScalar(String aName, Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
         final Protos.Resource resource = getNamedResource(aName, aTaskInfo);
 
         if (resource != null) {

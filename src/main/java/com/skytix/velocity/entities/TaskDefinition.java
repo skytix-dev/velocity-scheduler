@@ -1,32 +1,41 @@
 package com.skytix.velocity.entities;
 
+import com.skytix.velocity.scheduler.OfferPredicate;
+import com.skytix.velocity.scheduler.TaskEventHandler;
+import lombok.Builder;
+import lombok.Getter;
+import org.apache.mesos.v1.Protos;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+@Getter
+@Builder
 public class TaskDefinition {
-    private final double mCpus;
-    private final double mMem;
-    private final double mDisk;
-    private final double mGpus;
+    private final Protos.TaskInfo.Builder taskInfo;
+    private final TaskEventHandler taskEventHandler;
+    private final List<OfferPredicate> conditions;
 
-    public TaskDefinition(double aCpus, double aMem, double aDisk, double aGpus) {
-        mCpus = aCpus;
-        mMem = aMem;
-        mDisk = aDisk;
-        mGpus = aGpus;
+    public static TaskDefinition from(Protos.TaskInfo.Builder aTaskInfo, OfferPredicate... aConditions) {
+        return from(aTaskInfo, null, aConditions);
     }
 
-    public double getCpus() {
-        return mCpus;
+    public static TaskDefinition from(Protos.TaskInfo.Builder aTaskInfo, TaskEventHandler aEventHandler, OfferPredicate... aConditions) {
+
+        return TaskDefinition.builder()
+                .taskInfo(aTaskInfo)
+                .taskEventHandler(aEventHandler)
+                .conditions(aConditions != null ? Arrays.asList(aConditions) : Collections.emptyList())
+                .build();
     }
 
-    public double getMem() {
-        return mMem;
+    public boolean hasConditions() {
+        return getConditions() != null && !getConditions().isEmpty();
     }
 
-    public double getDisk() {
-        return mDisk;
-    }
-
-    public double getGpus() {
-        return mGpus;
+    public boolean hadTaskId() {
+        return getTaskInfo() != null && getTaskInfo().getTaskId() != null;
     }
 
 }
