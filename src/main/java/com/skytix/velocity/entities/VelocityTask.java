@@ -25,6 +25,8 @@ public class VelocityTask implements Task {
     @Builder.Default
     private boolean started = false;
     @Builder.Default
+    private boolean running = false;
+    @Builder.Default
     private int taskRetries = 0;
 
     public void incrementRetry() {

@@ -11,6 +11,7 @@ import org.apache.mesos.v1.scheduler.Protos.Event.Update;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.concurrent.Flow;
 
 @Slf4j
@@ -50,8 +51,8 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
 
                 case TASK_RUNNING:
 
-                    if (!task.isStarted()) {
-                        task.setStarted(true);
+                    if (!task.isRunning()) {
+                        task.setRunning(true);
                         task.setStartTime(LocalDateTime.now());
                     }
 
@@ -64,7 +65,13 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
 
                         mTaskRepository.completeTask(task);
                         mMeterRegistry.counter("velocity.counter.scheduler.completedTasks").increment();
-                        mMeterRegistry.timer("velocity.timer.scheduler.taskDuration").record(Duration.between(task.getStartTime(), LocalDateTime.now()));
+                        mMeterRegistry.timer("velocity.timer.scheduler.taskDuration").record(Duration.between(task.getStartTime(), task.getFinishTime()));
+
+                        if (mTaskRepository.getNumQueuedTasks() == 0 && mTaskRepository.getNumActiveTasks() == 0) {
+                            log.debug("Scheduler is idle. Suppressing offers");
+                            mRemote.suppress(Collections.emptyList());
+                        }
+
                     }
 
                     break;

@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Collections;
 
 @Slf4j
 public class VelocityMesosScheduler implements MesosScheduler {
@@ -62,6 +63,10 @@ public class VelocityMesosScheduler implements MesosScheduler {
                 .taskDefinition(aTaskDefinition)
                 .created(LocalDateTime.now())
                 .build();
+
+        if (mTaskRepository.getNumQueuedTasks() == 0) {
+            mMesosScheduler.getRemote().revive(Collections.emptyList());
+        }
 
         mTaskRepository.queueTask(task);
 
