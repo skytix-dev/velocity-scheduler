@@ -16,8 +16,7 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
-    private static final int DEFAULT_MAX_OFFER_BUFFER_SIZE = 1000;
-    private static final int DEFAULT_MAX_UPDATE_BUFFER_SIZE = 1000;
+
 
     private final SubmissionPublisher<Protos.Offer> mOfferPublisher;
     private final SubmissionPublisher<Event.Update> mUpdatePublisher;
@@ -30,8 +29,20 @@ public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
         mTaskRepository = aTaskRepository;
         mDefaultEventHandler = aDefaultEventHandler;
         mMeterRegistry = aMeterRegistry;
-        mOfferPublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), aConfig.getMaxOfferQueueSize() != null ? aConfig.getMaxOfferQueueSize() : DEFAULT_MAX_OFFER_BUFFER_SIZE);
-        mUpdatePublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), aConfig.getMaxUpdateQueueSize() != null ? aConfig.getMaxUpdateQueueSize() : DEFAULT_MAX_UPDATE_BUFFER_SIZE);
+
+        final Integer maxOfferQueueSize = aConfig.getMaxOfferQueueSize();
+        final Integer maxUpdateQueueSize = aConfig.getMaxUpdateQueueSize();
+
+        if (maxOfferQueueSize <= 0) {
+            throw new IllegalArgumentException("maxOfferQueueSize must be greater than zero");
+        }
+
+        if (maxUpdateQueueSize <= 0) {
+            throw new IllegalArgumentException("maxUpdateQueueSize must be create than zero");
+        }
+
+        mOfferPublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), maxOfferQueueSize);
+        mUpdatePublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), maxUpdateQueueSize);
     }
 
     @Override

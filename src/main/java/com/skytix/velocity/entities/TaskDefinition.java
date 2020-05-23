@@ -34,7 +34,7 @@ public class TaskDefinition {
         return getConditions() != null && !getConditions().isEmpty();
     }
 
-    public boolean hadTaskId() {
+    public boolean hasTaskId() {
         return getTaskInfo() != null && getTaskInfo().getTaskId() != null;
     }
 

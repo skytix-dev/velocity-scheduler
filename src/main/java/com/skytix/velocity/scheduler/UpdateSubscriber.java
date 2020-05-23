@@ -42,20 +42,31 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
 
         if (task != null) {
             mTaskRepository.updateTaskState(updateStatus.getTaskId(), updateStatus.getState());
+            // Send acknowledgement first to prevent handlers from delaying the potential release of resources.
+            mRemote.acknowledge(updateStatus);
 
             // Do some stuff with the task.
             switch (updateStatus.getState()) {
 
                 case TASK_RUNNING:
-                    task.setStarted(true);
-                    task.setStartTime(LocalDateTime.now());
+
+                    if (!task.isStarted()) {
+                        task.setStarted(true);
+                        task.setStartTime(LocalDateTime.now());
+                    }
 
                     break;
 
                 case TASK_FINISHED:
-                    mTaskRepository.completeTask(task);
-                    mMeterRegistry.counter("velocity.counter.scheduler.completedTasks").increment();
-                    mMeterRegistry.timer("velocity.timer.scheduler.taskDuration").record(Duration.between(task.getStartTime(), LocalDateTime.now()));
+
+                    if (!task.isComplete()) {
+                        task.setFinishTime(LocalDateTime.now());
+
+                        mTaskRepository.completeTask(task);
+                        mMeterRegistry.counter("velocity.counter.scheduler.completedTasks").increment();
+                        mMeterRegistry.timer("velocity.timer.scheduler.taskDuration").record(Duration.between(task.getStartTime(), LocalDateTime.now()));
+                    }
+
                     break;
 
                 case TASK_DROPPED:
@@ -87,15 +98,13 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                         default:
                             mMeterRegistry.counter("velocity.counter.scheduler.failedTasks").increment();
                             log.debug(String.format("Task %s failed for reason: (%s) %s.", updateStatus.getTaskId(), updateStatus.getReason(), updateStatus.getMessage()));
+                            task.setFinishTime(LocalDateTime.now());
                             mTaskRepository.completeTask(task);
                             break;
                     }
 
                     break;
             }
-
-            // Send acknowledgement first to prevent handlers from delaying the potential release of resources.
-            mRemote.acknowledge(updateStatus);
 
             // In the event that a scheduler needs to reconnect, it may get take UPDATE messages from tasks it
             // no longer knows about so the default update handler will be invoked if it's defined.

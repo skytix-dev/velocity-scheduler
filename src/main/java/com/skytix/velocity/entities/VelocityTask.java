@@ -20,6 +20,7 @@ public class VelocityTask implements Task {
     private TaskRemote remote;
     private LocalDateTime created;
     private LocalDateTime startTime;
+    private LocalDateTime finishTime;
     private Protos.TaskState state;
     @Builder.Default
     private boolean started = false;
@@ -28,6 +29,10 @@ public class VelocityTask implements Task {
 
     public void incrementRetry() {
         taskRetries++;
+    }
+
+    public boolean isComplete() {
+        return finishTime != null;
     }
 
     @Override

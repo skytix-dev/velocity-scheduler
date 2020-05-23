@@ -5,10 +5,7 @@ import com.skytix.velocity.VelocityTaskException;
 import com.skytix.velocity.entities.TaskDefinition;
 import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.mesos.MesosUtils;
-import com.skytix.velocity.scheduler.OfferBucket;
-import com.skytix.velocity.scheduler.OfferBucketFullException;
-import com.skytix.velocity.scheduler.OfferPredicate;
-import com.skytix.velocity.scheduler.VelocitySchedulerConfig;
+import com.skytix.velocity.scheduler.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.mesos.v1.Protos;
@@ -16,12 +13,14 @@ import org.apache.mesos.v1.Protos;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     private final VelocitySchedulerConfig mConfig;
     private final Map<String, VelocityTask> mTaskInfoByTaskId = new HashMap<>();
+    private final Semaphore mTaskQueue;
     private final Set<VelocityTask> mAwaitingTasks = new ConcurrentSkipListSet<>();
     private final Set<VelocityTask> mAwaitingGpuTasks = new ConcurrentSkipListSet<>();
     private final List<VelocityTask> mRunningTasks = new ArrayList<>();
@@ -42,34 +41,68 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     public InMemoryTaskRepository(MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
         mConfig = aConfig;
-        aMeterRegistry.gauge("velocity.guage.scheduler.numRunningTasks", mRunningTasks, List::size);
-        aMeterRegistry.gauge("velocity.guage.scheduler.numWaitingTasks", mTotalWaitingTasks);
+
+        final Integer maxTaskQueueSize = aConfig.getMaxTaskQueueSize();
+
+        if (maxTaskQueueSize > 0) {
+            mTaskQueue = new Semaphore(maxTaskQueueSize);
+
+        } else {
+            throw new IllegalArgumentException("maxTaskQueueSize must be greater than zero");
+        }
+
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningTasks", mRunningTasks, List::size);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingTasks", mTotalWaitingTasks);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingCpu", mWaitingCpu);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingMem", mWaitingMem);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingDisk", mWaitingDisk);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingGpu", mWaitingGpu);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningCpu", mRunningCpu);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningMem", mRunningMem);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningDisk", mRunningDisk);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningGpu", mRunningGpu);
     }
 
     @Override
     public synchronized void queueTask(VelocityTask aTask) throws VelocityTaskException {
+        queueTask(aTask, false);
+    }
+
+    private synchronized void queueTask(VelocityTask aTask, boolean aIsRetry) throws VelocityTaskException {
         final TaskDefinition definition = aTask.getTaskDefinition();
 
-        if (definition.hadTaskId()) {
-            final Protos.TaskInfo.Builder taskInfo = definition.getTaskInfo();
-            final double taskGpus = MesosUtils.getGpus(taskInfo, 0);
+        if (definition.hasTaskId()) {
 
-            mTaskInfoByTaskId.put(taskInfo.getTaskId().getValue(), aTask);
+            try {
 
-            if (taskGpus > 0) {
+                if (aIsRetry || mTaskQueue.tryAcquire(mConfig.getTaskQueueFullWaitTimeout(), mConfig.getTaskQueueFullWaitTimeoutUnit())) {
+                    final Protos.TaskInfo.Builder taskInfo = definition.getTaskInfo();
+                    final double taskGpus = MesosUtils.getGpus(taskInfo, 0);
 
-                if (mConfig.isEnableGPUResources()) {
-                    mAwaitingGpuTasks.add(aTask);
+                    mTaskInfoByTaskId.put(taskInfo.getTaskId().getValue(), aTask);
+
+                    if (taskGpus > 0) {
+
+                        if (mConfig.isEnableGPUResources()) {
+                            mAwaitingGpuTasks.add(aTask);
+
+                        } else {
+                            throw new TaskValidationException("Unable to request GPU as GPU resources have not been enabled in the scheduler config");
+                        }
+
+                    } else {
+                        mAwaitingTasks.add(aTask);
+                    }
+
+                    incrementWaitingCounters(taskInfo);
 
                 } else {
-                    throw new TaskValidationException("Unable to request GPU as GPU resources have not been enabled in the scheduler config");
+                    throw new TaskQueueFullException();
                 }
 
-            } else {
-                mAwaitingTasks.add(aTask);
+            } catch (InterruptedException aE) {
+                throw new VelocityTaskException(aE);
             }
-
-            incrementWaitingCounters(taskInfo);
 
         } else {
             throw new TaskValidationException("TaskInfo is missing a TaskID");
@@ -89,7 +122,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
                 aTask.setTaskInfo(null);
                 aTask.incrementRetry();
 
-                queueTask(aTask);
+                queueTask(aTask, true);
             }
 
         }
@@ -108,6 +141,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
             decrementRunningCounters(taskInfo);
             mTaskInfoByTaskId.remove(taskId);
         }
+
     }
 
     @Override
@@ -130,6 +164,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
             mRunningTasks.add(velocityTask);
             incrementRunningCounters(task);
+            mTaskQueue.release();
         }
 
     }
