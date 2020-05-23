@@ -10,22 +10,28 @@ import org.apache.mesos.v1.scheduler.Protos.Event;
 import org.apache.mesos.v1.scheduler.Protos.Event.Offers;
 
 import java.util.Collections;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.SubmissionPublisher;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
-    private final SubmissionPublisher<Protos.Offer> mOfferPublisher = new SubmissionPublisher<>();
-    private final SubmissionPublisher<Event.Update> mUpdatePublisher = new SubmissionPublisher<>();
+    private static final int DEFAULT_MAX_OFFER_BUFFER_SIZE = 1000;
+    private static final int DEFAULT_MAX_UPDATE_BUFFER_SIZE = 1000;
+
+    private final SubmissionPublisher<Protos.Offer> mOfferPublisher;
+    private final SubmissionPublisher<Event.Update> mUpdatePublisher;
 
     private final TaskRepository<VelocityTask> mTaskRepository;
     private final TaskEventHandler mDefaultEventHandler;
     private final MeterRegistry mMeterRegistry;
 
-    public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, TaskEventHandler aDefaultEventHandler, MeterRegistry aMeterRegistry) {
+    public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, TaskEventHandler aDefaultEventHandler, MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
         mTaskRepository = aTaskRepository;
         mDefaultEventHandler = aDefaultEventHandler;
         mMeterRegistry = aMeterRegistry;
+        mOfferPublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), aConfig.getMaxOfferQueueSize() != null ? aConfig.getMaxOfferQueueSize() : DEFAULT_MAX_OFFER_BUFFER_SIZE);
+        mUpdatePublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), aConfig.getMaxUpdateQueueSize() != null ? aConfig.getMaxUpdateQueueSize() : DEFAULT_MAX_UPDATE_BUFFER_SIZE);
     }
 
     @Override
@@ -35,11 +41,6 @@ public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
 
         // This will cause Mesos to send updates for all non-terminal tasks.
         getSchedulerRemote().reconcile(Collections.emptyList());
-    }
-
-    @Override
-    public void onDisconnect() {
-
     }
 
     @Override
@@ -84,5 +85,6 @@ public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
          * we receive an offer and start finding tasks for it and a rescind request is received, we need to cancel it.
          */
     }
+
 
 }

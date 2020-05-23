@@ -47,11 +47,8 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
             switch (updateStatus.getState()) {
 
                 case TASK_RUNNING:
-
-                    if (task != null) {
-                        task.setStarted(true);
-                        task.setStartTime(LocalDateTime.now());
-                    }
+                    task.setStarted(true);
+                    task.setStartTime(LocalDateTime.now());
 
                     break;
 

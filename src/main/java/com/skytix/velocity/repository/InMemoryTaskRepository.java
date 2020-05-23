@@ -8,6 +8,7 @@ import com.skytix.velocity.mesos.MesosUtils;
 import com.skytix.velocity.scheduler.OfferBucket;
 import com.skytix.velocity.scheduler.OfferBucketFullException;
 import com.skytix.velocity.scheduler.OfferPredicate;
+import com.skytix.velocity.scheduler.VelocitySchedulerConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.mesos.v1.Protos;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
+    private final VelocitySchedulerConfig mConfig;
     private final Map<String, VelocityTask> mTaskInfoByTaskId = new HashMap<>();
     private final Set<VelocityTask> mAwaitingTasks = new ConcurrentSkipListSet<>();
     private final Set<VelocityTask> mAwaitingGpuTasks = new ConcurrentSkipListSet<>();
@@ -38,7 +40,8 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     private int mTotalTaskCounter = 0;
 
-    public InMemoryTaskRepository(MeterRegistry aMeterRegistry) {
+    public InMemoryTaskRepository(MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
+        mConfig = aConfig;
         aMeterRegistry.gauge("velocity.guage.scheduler.numRunningTasks", mRunningTasks, List::size);
         aMeterRegistry.gauge("velocity.guage.scheduler.numWaitingTasks", mTotalWaitingTasks);
     }
@@ -54,7 +57,13 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
             mTaskInfoByTaskId.put(taskInfo.getTaskId().getValue(), aTask);
 
             if (taskGpus > 0) {
-                mAwaitingGpuTasks.add(aTask);
+
+                if (mConfig.isEnableGPUResources()) {
+                    mAwaitingGpuTasks.add(aTask);
+
+                } else {
+                    throw new TaskValidationException("Unable to request GPU as GPU resources have not been enabled in the scheduler config");
+                }
 
             } else {
                 mAwaitingTasks.add(aTask);
@@ -140,22 +149,29 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     }
 
-
     @Override
     public synchronized List<Protos.TaskInfo.Builder> getMatchingWaitingTasks(Protos.Offer aOffer) {
         final OfferBucket bucket = new OfferBucket(aOffer);
 
-        try {
-            // If the offer contains any GPU resources, we will try and launch as many as we can first before
-            // scheduling any other tasks.
+        // If the offer contains any GPU resources, we will try and launch as many as we can first before
+        // scheduling any other tasks.
+
+        if (mConfig.isEnableGPUResources()) {
+
             if (MesosUtils.getGpus(aOffer, 0) > 0) {
                 populateOfferBucket(aOffer, bucket, mAwaitingGpuTasks);
+
+                // For single-node clusters or where you want to allow non-gpu workloads on gpu-enabled agents, schedule any more awaiting tasks.
+                if (!mConfig.isRestrictedGpuScheduling()) {
+                    populateOfferBucket(aOffer, bucket, mAwaitingTasks);
+                }
+
+            } else {
+                populateOfferBucket(aOffer, bucket, mAwaitingTasks);
             }
 
+        } else {
             populateOfferBucket(aOffer, bucket, mAwaitingTasks);
-
-        } catch (OfferBucketFullException aE) {
-            /* Bucket is full so stop whatever we are doing. */
         }
 
         return bucket.getAllocatedTasks();
@@ -178,30 +194,36 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     }
 
-    private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Set<VelocityTask> aAwaitingTasks) throws OfferBucketFullException {
+    private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Set<VelocityTask> aAwaitingTasks) {
 
         for (VelocityTask velocityTask : aAwaitingTasks) {
             final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
             final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
 
-            if (aOfferBucket.hasResources(taskInfo)) {
+            try {
 
-                if (taskDefinition.hasConditions()) {
-                    boolean condition = true;
+                if (aOfferBucket.hasResources(taskInfo)) {
 
-                    for (OfferPredicate predicate : taskDefinition.getConditions()) {
-                        condition = condition && predicate.test(aOffer);
-                    }
+                    if (taskDefinition.hasConditions()) {
+                        boolean condition = true;
 
-                    if (condition) {
+                        for (OfferPredicate predicate : taskDefinition.getConditions()) {
+                            condition = condition && predicate.test(aOffer);
+                        }
+
+                        if (condition) {
+                            aOfferBucket.add(taskInfo);
+
+                        }
+
+                    } else {
                         aOfferBucket.add(taskInfo);
-
                     }
 
-                } else {
-                    aOfferBucket.add(taskInfo);
                 }
 
+            } catch (OfferBucketFullException aE) {
+                break;
             }
 
         }
