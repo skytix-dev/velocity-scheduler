@@ -64,6 +64,11 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
+    public List<VelocityTask> getActiveTasks() {
+        return mRunningTasks;
+    }
+
+    @Override
     public synchronized void queueTask(VelocityTask aTask) throws VelocityTaskException {
         queueTask(aTask, false);
     }

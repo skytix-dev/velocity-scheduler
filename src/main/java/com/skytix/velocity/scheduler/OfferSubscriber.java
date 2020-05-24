@@ -1,6 +1,5 @@
 package com.skytix.velocity.scheduler;
 
-import com.skytix.schedulerclient.SchedulerRemote;
 import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.repository.TaskRepository;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -14,12 +13,12 @@ import java.util.concurrent.Flow;
 @Slf4j
 public class OfferSubscriber implements Flow.Subscriber<Protos.Offer> {
     private final TaskRepository<VelocityTask> mTaskRepository;
-    private final SchedulerRemote mRemote;
+    private final SchedulerRemoteProvider mRemote;
     private final MeterRegistry mMeterRegistry;
     private Flow.Subscription mSubscription;
 
 
-    public OfferSubscriber(TaskRepository<VelocityTask> aTaskRepository, SchedulerRemote aRemote, MeterRegistry aMeterRegistry) {
+    public OfferSubscriber(TaskRepository<VelocityTask> aTaskRepository, SchedulerRemoteProvider aRemote, MeterRegistry aMeterRegistry) {
         mTaskRepository = aTaskRepository;
         mRemote = aRemote;
         mMeterRegistry = aMeterRegistry;
@@ -33,44 +32,52 @@ public class OfferSubscriber implements Flow.Subscriber<Protos.Offer> {
 
     @Override
     public void onNext(Protos.Offer offer) {
-        final List<Protos.TaskInfo.Builder> matchingTasks = mTaskRepository.getMatchingWaitingTasks(offer);
 
-        if (matchingTasks.size() > 0) {
-            final Protos.Offer.Operation.Builder operation = buildLaunchOperation(offer, matchingTasks);
-            final List<Protos.TaskInfo> infoList = operation.getLaunch().getTaskInfosList();
-            final int numTasks = infoList.size();
+        try {
+            final List<Protos.TaskInfo.Builder> matchingTasks = mTaskRepository.getMatchingWaitingTasks(offer);
 
-            mMeterRegistry.counter("velocity.counter.scheduler.offerTasksLaunched").increment(numTasks);
+            if (matchingTasks.size() > 0) {
+                final Protos.Offer.Operation.Builder operation = buildLaunchOperation(offer, matchingTasks);
+                final List<Protos.TaskInfo> infoList = operation.getLaunch().getTaskInfosList();
+                final int numTasks = infoList.size();
 
-            mTaskRepository.launchTasks(infoList);
+                mMeterRegistry.counter("velocity.counter.scheduler.offerTasksLaunched").increment(numTasks);
 
-            for (Protos.TaskInfo taskInfo : infoList) {
-                final VelocityTask task = mTaskRepository.getTaskByTaskId(taskInfo.getTaskId().getValue());
+                mTaskRepository.launchTasks(infoList);
 
-                if (task != null) {
-                    task.setState(Protos.TaskState.TASK_STAGING);
-                    task.setRemote(VelocityTaskRemote.builder()
-                            .schedulerRemote(mRemote)
-                            .agentID(taskInfo.getAgentId())
-                            .taskID(taskInfo.getTaskId())
-                            .build()
-                    );
+                for (Protos.TaskInfo taskInfo : infoList) {
+                    final VelocityTask task = mTaskRepository.getTaskByTaskId(taskInfo.getTaskId().getValue());
+
+                    if (task != null) {
+                        task.setState(Protos.TaskState.TASK_STAGING);
+                        task.setRemote(VelocityTaskRemote.builder()
+                                .schedulerRemote(mRemote)
+                                .agentID(taskInfo.getAgentId())
+                                .taskID(taskInfo.getTaskId())
+                                .build()
+                        );
+
+                    }
 
                 }
 
+                mRemote.get().accept(
+                        Collections.singletonList(offer.getId()),
+                        Collections.singletonList(operation.build())
+                );
+
+            } else {
+                final Protos.OfferID offerId = offer.getId();
+                mRemote.get().decline(Collections.singletonList(offerId));
             }
 
-            mRemote.accept(
-                    Collections.singletonList(offer.getId()),
-                    Collections.singletonList(operation.build())
-            );
+        } catch (Exception aE) {
+            log.error(aE.getMessage(), aE);
 
-        } else {
-            final Protos.OfferID offerId = offer.getId();
-            mRemote.decline(Collections.singletonList(offerId));
+        } finally {
+            mSubscription.request(1);
         }
 
-        mSubscription.request(1);
     }
 
     @Override

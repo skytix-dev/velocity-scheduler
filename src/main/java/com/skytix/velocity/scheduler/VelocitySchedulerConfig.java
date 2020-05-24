@@ -22,5 +22,7 @@ public class VelocitySchedulerConfig extends SchedulerConfig {
     private int taskQueueFullWaitTimeout = 2;
     @Builder.Default
     private TimeUnit taskQueueFullWaitTimeoutUnit = TimeUnit.SECONDS;
+    @Builder.Default
+    private int heartbeatDelaySeconds = 2; // The maximum acceptable delay to receiving heartbeat messages from the master.
 
 }

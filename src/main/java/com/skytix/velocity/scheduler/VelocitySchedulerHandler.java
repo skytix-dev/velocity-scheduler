@@ -6,29 +6,37 @@ import com.skytix.velocity.repository.TaskRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.mesos.v1.Protos;
+import org.apache.mesos.v1.scheduler.Protos.Call.Reconcile.Task;
 import org.apache.mesos.v1.scheduler.Protos.Event;
 import org.apache.mesos.v1.scheduler.Protos.Event.Offers;
+import org.apache.mesos.v1.scheduler.Protos.Event.Subscribed;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.SubmissionPublisher;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
-public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
-
-
+public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
     private final SubmissionPublisher<Protos.Offer> mOfferPublisher;
     private final SubmissionPublisher<Event.Update> mUpdatePublisher;
 
     private final TaskRepository<VelocityTask> mTaskRepository;
     private final TaskEventHandler mDefaultEventHandler;
     private final MeterRegistry mMeterRegistry;
+    private final VelocitySchedulerConfig mSchedulerConfig;
+
+    private LocalDateTime mLastHeartbeat = null;
+    private int mHeartbeatInterval = 0;
 
     public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, TaskEventHandler aDefaultEventHandler, MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
         mTaskRepository = aTaskRepository;
         mDefaultEventHandler = aDefaultEventHandler;
         mMeterRegistry = aMeterRegistry;
+        mSchedulerConfig = aConfig;
 
         final Integer maxOfferQueueSize = aConfig.getMaxOfferQueueSize();
         final Integer maxUpdateQueueSize = aConfig.getMaxUpdateQueueSize();
@@ -46,16 +54,18 @@ public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
     }
 
     @Override
-    public void onSubscribe() {
-        mOfferPublisher.subscribe(new OfferSubscriber(mTaskRepository, getSchedulerRemote(), mMeterRegistry));
-        mUpdatePublisher.subscribe(new UpdateSubscriber(mTaskRepository, getSchedulerRemote(), mDefaultEventHandler, mMeterRegistry));
+    public void onSubscribe(Subscribed aSubscribeEvent) {
+        mOfferPublisher.subscribe(new OfferSubscriber(mTaskRepository, this::getSchedulerRemote, mMeterRegistry));
+        mUpdatePublisher.subscribe(new UpdateSubscriber(mTaskRepository, this::getSchedulerRemote, mDefaultEventHandler, mMeterRegistry));
 
-        // This will cause Mesos to send updates for all non-terminal tasks.
-        getSchedulerRemote().reconcile(Collections.emptyList());
+        // Get Mesos to send status updates for tasks that were previously running.
+        getSchedulerRemote().reconcile(buildFromRunningTasks());
+
+        mHeartbeatInterval = (int) aSubscribeEvent.getHeartbeatIntervalSeconds();
     }
 
     @Override
-    public void handleEvent(Event aEvent) throws Exception {
+    public void handleEvent(Event aEvent) {
 
         switch (aEvent.getType()) {
 
@@ -87,8 +97,20 @@ public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
 
                 break;
 
+            case HEARTBEAT:
+                mLastHeartbeat = LocalDateTime.now();
+                break;
+
         }
 
+    }
+
+    public LocalDateTime getLastHeartbeat() {
+        return mLastHeartbeat;
+    }
+
+    public int getHeartbeatInterval() {
+        return mHeartbeatInterval;
     }
 
     private void handleRescind(Event.Rescind aRescind) {
@@ -97,5 +119,34 @@ public class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
          */
     }
 
+    private List<Task> buildFromRunningTasks() {
+        final List<VelocityTask> activeTasks = mTaskRepository.getActiveTasks();
+        final List<Task> results = new ArrayList<>(activeTasks.size());
+
+        activeTasks.forEach((aVelocityTask -> {
+            results.add(
+                    Task.newBuilder()
+                            .setTaskId(aVelocityTask.getTaskInfo().getTaskId())
+                            .setAgentId(aVelocityTask.getTaskInfo().getAgentId())
+                            .build()
+            );
+
+        }));
+
+        return results;
+    }
+
+    @Override
+    public void onTerminate(Exception aException) {
+        onDisconnect();
+    }
+
+    public abstract void onHeartbeatFail();
+
+    @Override
+    public void onDisconnect() {
+        mOfferPublisher.close();
+        mUpdatePublisher.close();
+    }
 
 }
