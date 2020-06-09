@@ -7,7 +7,7 @@ import lombok.experimental.SuperBuilder;
 
 import java.util.concurrent.TimeUnit;
 
-@SuperBuilder
+@SuperBuilder(toBuilder = true)
 @Getter
 public class VelocitySchedulerConfig extends SchedulerConfig {
     @Builder.Default
@@ -24,5 +24,7 @@ public class VelocitySchedulerConfig extends SchedulerConfig {
     private TimeUnit taskQueueFullWaitTimeoutUnit = TimeUnit.SECONDS;
     @Builder.Default
     private int heartbeatDelaySeconds = 2; // The maximum acceptable delay to receiving heartbeat messages from the master.
+    @Builder.Default
+    private TaskEventHandler defaultTaskEventHandler = null;
 
 }

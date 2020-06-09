@@ -25,16 +25,14 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
     private final SubmissionPublisher<Event.Update> mUpdatePublisher;
 
     private final TaskRepository<VelocityTask> mTaskRepository;
-    private final TaskEventHandler mDefaultEventHandler;
     private final MeterRegistry mMeterRegistry;
     private final VelocitySchedulerConfig mSchedulerConfig;
 
     private LocalDateTime mLastHeartbeat = null;
     private int mHeartbeatInterval = 0;
 
-    public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, TaskEventHandler aDefaultEventHandler, MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
+    public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
         mTaskRepository = aTaskRepository;
-        mDefaultEventHandler = aDefaultEventHandler;
         mMeterRegistry = aMeterRegistry;
         mSchedulerConfig = aConfig;
 
@@ -56,7 +54,7 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
     @Override
     public void onSubscribe(Subscribed aSubscribeEvent) {
         mOfferPublisher.subscribe(new OfferSubscriber(mTaskRepository, this::getSchedulerRemote, mMeterRegistry));
-        mUpdatePublisher.subscribe(new UpdateSubscriber(mTaskRepository, this::getSchedulerRemote, mDefaultEventHandler, mMeterRegistry));
+        mUpdatePublisher.subscribe(new UpdateSubscriber(mTaskRepository, this::getSchedulerRemote, mSchedulerConfig.getDefaultTaskEventHandler(), mMeterRegistry));
 
         // Get Mesos to send status updates for tasks that were previously running.
         getSchedulerRemote().reconcile(buildFromRunningTasks());

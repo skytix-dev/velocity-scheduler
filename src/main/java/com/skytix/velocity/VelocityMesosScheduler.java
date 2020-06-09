@@ -5,7 +5,10 @@ import com.skytix.velocity.entities.TaskDefinition;
 import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.repository.InMemoryTaskRepository;
 import com.skytix.velocity.repository.TaskRepository;
-import com.skytix.velocity.scheduler.*;
+import com.skytix.velocity.scheduler.MesosScheduler;
+import com.skytix.velocity.scheduler.RunningState;
+import com.skytix.velocity.scheduler.VelocitySchedulerConfig;
+import com.skytix.velocity.scheduler.VelocitySchedulerHandler;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +30,6 @@ public class VelocityMesosScheduler implements MesosScheduler {
     private final TaskRepository<VelocityTask> mTaskRepository;
     private final MeterRegistry mMeterRegistry;
     private final VelocitySchedulerConfig mSchedulerConfig;
-    private final TaskEventHandler mDefaultEventHandler;
     private final ForkJoinTask<?> mReconnectTask;
     private final Object mErrorMonitor = new Object();
     private final AtomicReference<RunningState> mSchedulerRunningState = new AtomicReference<>(RunningState.STOPPED);
@@ -36,23 +38,14 @@ public class VelocityMesosScheduler implements MesosScheduler {
         this(aSchedulerConfig, new SimpleMeterRegistry());
     }
 
-    public VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig, TaskEventHandler aDefaultEventHandler) {
-        this(aSchedulerConfig, new SimpleMeterRegistry(), aDefaultEventHandler);
-    }
-
-    public VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig, MeterRegistry aMeterRegistry, TaskEventHandler aDefaultEventHandler) {
-        this(aSchedulerConfig, aMeterRegistry, new InMemoryTaskRepository(aMeterRegistry, aSchedulerConfig), aDefaultEventHandler);
-    }
-
     public VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig, MeterRegistry aMeterRegistry) {
-        this(aSchedulerConfig, aMeterRegistry, new InMemoryTaskRepository(aMeterRegistry, aSchedulerConfig), null);
+        this(aSchedulerConfig, aMeterRegistry, new InMemoryTaskRepository(aMeterRegistry, aSchedulerConfig));
     }
 
-    private VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig, MeterRegistry aMeterRegistry, TaskRepository<VelocityTask> aTaskRepository, TaskEventHandler aDefaultEventHandler) {
+    private VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig, MeterRegistry aMeterRegistry, TaskRepository<VelocityTask> aTaskRepository) {
         mSchedulerConfig = aSchedulerConfig;
         mMeterRegistry = aMeterRegistry;
         mTaskRepository = aTaskRepository;
-        mDefaultEventHandler = aDefaultEventHandler;
 
         mReconnectTask = ForkJoinPool.commonPool().submit(() -> {
 
@@ -123,7 +116,6 @@ public class VelocityMesosScheduler implements MesosScheduler {
 
         return new VelocitySchedulerHandler(
                 mTaskRepository,
-                mDefaultEventHandler,
                 mMeterRegistry,
                 mSchedulerConfig
         ) {
@@ -199,7 +191,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
                     onDisconnect();
 
                 } catch (IOException aE) {
-                    aE.printStackTrace();
+                    log.error(aE.getMessage(), aE);
                 }
 
             }
