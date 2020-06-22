@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Slf4j
 public class VelocityMesosScheduler implements MesosScheduler {
     private Scheduler mMesosScheduler;
+    private VelocitySchedulerHandler mSchedulerHandler;
     private boolean mRunning = true;
 
     private final TaskRepository<VelocityTask> mTaskRepository;
@@ -91,6 +92,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
                                 schedulerHandler
                         );
 
+                        mSchedulerHandler = schedulerHandler;
                         mSchedulerRunningState.set(RunningState.RUNNING);
 
                         return;
@@ -206,6 +208,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
             }
 
         };
+
     }
 
     @Override
@@ -226,12 +229,71 @@ public class VelocityMesosScheduler implements MesosScheduler {
         return task;
     }
 
-    @Override
-    public void close() throws IOException {
+    public int getNumQueuedTasks() {
+        return mTaskRepository.getNumQueuedTasks();
+    }
+
+    public int getNumActiveTasks() {
+        return mTaskRepository.getNumActiveTasks();
+    }
+
+    public VelocityTask getTaskByTaskId(String aTaskId) {
+        return mTaskRepository.getTaskByTaskId(aTaskId);
+    }
+
+    public LocalDateTime getLastHeartbeat() {
+
+        if (mSchedulerHandler != null) {
+            return mSchedulerHandler.getLastHeartbeat();
+
+        } else {
+            return null;
+        }
+
+    }
+
+    /**
+     * Wait till all tasks have been completed and then send a teardown call to the Master.
+     */
+    public void drainAndTeardown() throws Exception {
+        waitTillEmpty();
+
+        log.info(String.format("Scheduler is empty.  Tearing down framework: %s", mSchedulerConfig.getFrameworkID()));
+
+        stop();
+        mMesosScheduler.getRemote().teardown();
+    }
+
+    private void stop() {
         mSchedulerRunningState.set(RunningState.STOPPED);
         mRunning = false;
         mReconnectTask.cancel(true);
-        mMesosScheduler.close();
+    }
+
+    public void drainAndClose() throws Exception {
+        waitTillEmpty();
+        log.info("Scheduler is empty.  Now closing.");
+        close();
+    }
+
+    private void waitTillEmpty() throws InterruptedException {
+        int numActiveTasks = getNumActiveTasks();
+        int numQueuedTasks = getNumQueuedTasks();
+
+        while (numActiveTasks > 0 && numQueuedTasks > 0) {
+            log.info(String.format("Waiting on task completion.  #Queued: %d, #Active: %d.", numQueuedTasks, numActiveTasks));
+
+            Thread.sleep(2000);
+
+            numActiveTasks = getNumActiveTasks();
+            numQueuedTasks = getNumQueuedTasks();
+        }
+    }
+
+    @Override
+    public void close() throws IOException {
+        stop();
+        mMesosScheduler.getRemote().exit();
     }
 
 }

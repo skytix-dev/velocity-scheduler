@@ -26,5 +26,7 @@ public class VelocitySchedulerConfig extends SchedulerConfig {
     private int heartbeatDelaySeconds = 2; // The maximum acceptable delay to receiving heartbeat messages from the master.
     @Builder.Default
     private TaskEventHandler defaultTaskEventHandler = null;
+    @Builder.Default
+    private HeartbeatListener heartbeatListener = null;
 
 }

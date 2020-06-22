@@ -97,6 +97,11 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
 
             case HEARTBEAT:
                 mLastHeartbeat = LocalDateTime.now();
+
+                if (mSchedulerConfig.getHeartbeatListener() != null) {
+                    mSchedulerConfig.getHeartbeatListener().beat();
+                }
+
                 break;
 
         }
