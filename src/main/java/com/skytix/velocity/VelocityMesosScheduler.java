@@ -18,9 +18,12 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class VelocityMesosScheduler implements MesosScheduler {
@@ -237,7 +240,31 @@ public class VelocityMesosScheduler implements MesosScheduler {
         return mTaskRepository.getNumActiveTasks();
     }
 
-    public VelocityTask getTaskByTaskId(String aTaskId) {
+    public Map<String, VelocityTask> getActiveTasksById() {
+        final List<VelocityTask> activeTasks = mTaskRepository.getActiveTasks();
+
+        if (!activeTasks.isEmpty()) {
+            return activeTasks.stream().collect(Collectors.toMap(task -> task.getTaskInfo().getTaskId().getValue(), task -> task));
+
+        } else {
+            return Collections.emptyMap();
+        }
+
+    }
+
+    public Map<String, VelocityTask> getQueuedTasksById() {
+        final List<VelocityTask> queuedTasks = mTaskRepository.getQueuedTasks();
+
+        if (!queuedTasks.isEmpty()) {
+            return queuedTasks.stream().collect(Collectors.toMap(task -> task.getTaskInfo().getTaskId().getValue(), task -> task));
+
+        } else {
+            return Collections.emptyMap();
+        }
+
+    }
+
+    public VelocityTask getTaskById(String aTaskId) {
         return mTaskRepository.getTaskByTaskId(aTaskId);
     }
 

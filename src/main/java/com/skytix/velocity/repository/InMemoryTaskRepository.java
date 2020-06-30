@@ -64,8 +64,18 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
-    public List<VelocityTask> getActiveTasks() {
+    public synchronized List<VelocityTask> getActiveTasks() {
         return mRunningTasks;
+    }
+
+    @Override
+    public synchronized List<VelocityTask> getQueuedTasks() {
+        final List<VelocityTask> tasks = new ArrayList<>();
+
+        tasks.addAll(mAwaitingGpuTasks);
+        tasks.addAll(mAwaitingTasks);
+
+        return tasks;
     }
 
     @Override

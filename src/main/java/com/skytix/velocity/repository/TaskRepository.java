@@ -10,6 +10,7 @@ import java.util.List;
 public interface TaskRepository<T extends Task> extends Closeable {
     public void queueTask(T aTask) throws VelocityTaskException;
     public void retryTask(T aTask) throws VelocityTaskException;
+    public List<T> getQueuedTasks();
     public List<T> getActiveTasks();
     public T getTaskByTaskId(String aTaskId);
     public void updateTaskState(Protos.TaskID aTaskID, Protos.TaskState aTaskStatus);
