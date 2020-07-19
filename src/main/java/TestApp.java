@@ -13,7 +13,7 @@ public class TestApp {
         try {
             final VelocitySchedulerConfig config = VelocitySchedulerConfig.builder()
                     .frameworkID("marc-test-scheduler")
-                    .mesosMasterURL("http://10.9.10.1:5050")
+                    .mesosMasterURL("https://mesos.dev.redeye.co")
                     .disableSSLTrust(true)
                     .enableGPUResources(true)
                     .restrictedGpuScheduling(false)
@@ -28,7 +28,7 @@ public class TestApp {
                     final AtomicInteger atomicInteger = new AtomicInteger(idx);
 
                     final TaskDefinition taskDef = TaskDefinition.from(
-                            Tasks.docker("My special test", "ubuntu", "ls -la", 0.1, 0, 0.01, 0),
+                            Tasks.docker("My special test", "ubuntu", 0.1, 0, 0.01, 0, true, "ls -la"),
                             (event) -> {
 
                                 switch (event.getStatus().getState()) {

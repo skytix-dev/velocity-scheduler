@@ -1,5 +1,6 @@
 package com.skytix.velocity.repository;
 
+import com.google.common.util.concurrent.AtomicDouble;
 import com.skytix.velocity.TaskValidationException;
 import com.skytix.velocity.VelocityTaskException;
 import com.skytix.velocity.entities.TaskDefinition;
@@ -27,17 +28,17 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     private final AtomicInteger mTotalWaitingTasks = new AtomicInteger(0);
 
-    private double mWaitingCpu = 0;
-    private double mWaitingMem = 0;
-    private double mWaitingDisk = 0;
-    private double mWaitingGpu = 0;
+    private AtomicDouble mWaitingCpu = new AtomicDouble(0);
+    private AtomicDouble mWaitingMem = new AtomicDouble(0);
+    private AtomicDouble mWaitingDisk = new AtomicDouble(0);
+    private AtomicDouble mWaitingGpu = new AtomicDouble(0);
 
-    private double mRunningCpu = 0;
-    private double mRunningMem = 0;
-    private double mRunningDisk = 0;
-    private double mRunningGpu = 0;
+    private AtomicDouble mRunningCpu = new AtomicDouble(0);
+    private AtomicDouble mRunningMem = new AtomicDouble(0);
+    private AtomicDouble mRunningDisk = new AtomicDouble(0);
+    private AtomicDouble mRunningGpu = new AtomicDouble(0);
 
-    private int mTotalTaskCounter = 0;
+    private final AtomicInteger mTotalTaskCounter = new AtomicInteger(0);
 
     public InMemoryTaskRepository(MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
         mConfig = aConfig;
@@ -52,15 +53,16 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
         }
 
         aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningTasks", mRunningTasks, List::size);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingTasks", mTotalWaitingTasks);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingCpu", mWaitingCpu);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingMem", mWaitingMem);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingDisk", mWaitingDisk);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingGpu", mWaitingGpu);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningCpu", mRunningCpu);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningMem", mRunningMem);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningDisk", mRunningDisk);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningGpu", mRunningGpu);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingTasks", mTotalWaitingTasks, AtomicInteger::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numTotalTasks", mTotalTaskCounter, AtomicInteger::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingCpu", mWaitingCpu, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingMem", mWaitingMem, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingDisk", mWaitingDisk, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingGpu", mWaitingGpu, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningCpu", mRunningCpu, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningMem", mRunningMem, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningDisk", mRunningDisk, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningGpu", mRunningGpu, AtomicDouble::get);
     }
 
     @Override
@@ -149,7 +151,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
         final Protos.TaskInfo taskInfo = aTask.getTaskInfo();
         final String taskId = taskInfo.getTaskId().getValue();
 
-        mTotalTaskCounter++;
+        mTotalTaskCounter.incrementAndGet();
 
         if (mTaskInfoByTaskId.containsKey(taskId)) {
             mRunningTasks.remove(aTask);
@@ -283,33 +285,33 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     private void incrementWaitingCounters(Protos.TaskInfoOrBuilder aTaskInfo) {
         mTotalWaitingTasks.incrementAndGet();
 
-        mWaitingCpu += MesosUtils.getNamedResourceScalar("cpus", aTaskInfo, 0);
-        mWaitingMem += MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0);
-        mWaitingDisk += MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0);
-        mWaitingGpu += MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0);
+        mWaitingCpu.addAndGet(MesosUtils.getNamedResourceScalar("cpus", aTaskInfo, 0));
+        mWaitingMem.addAndGet(MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0));
+        mWaitingDisk.addAndGet(MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0));
+        mWaitingGpu.addAndGet(MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0));
     }
 
     private void decrementWaitingCounters(Protos.TaskInfoOrBuilder aTaskInfo) {
         mTotalWaitingTasks.decrementAndGet();
 
-        mWaitingCpu -= MesosUtils.getNamedResourceScalar("cpus", aTaskInfo, 0);
-        mWaitingMem -= MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0);
-        mWaitingDisk -= MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0);
-        mWaitingGpu -= MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0);
+        mWaitingCpu.set(mWaitingCpu.get() - MesosUtils.getNamedResourceScalar("cpus", aTaskInfo, 0));
+        mWaitingMem.set(mWaitingMem.get() - MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0));
+        mWaitingDisk.set(mWaitingDisk.get() - MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0));
+        mWaitingGpu.set(mWaitingGpu.get() - MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0));
     }
 
     private void incrementRunningCounters(Protos.TaskInfoOrBuilder aTaskInfo) {
-        mRunningCpu += MesosUtils.getNamedResourceScalar("cpus", aTaskInfo, 0);
-        mRunningMem += MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0);
-        mRunningDisk += MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0);
-        mRunningGpu += MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0);
+        mRunningCpu.addAndGet(MesosUtils.getNamedResourceScalar("cpus", aTaskInfo, 0));
+        mRunningMem.addAndGet(MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0));
+        mRunningDisk.addAndGet(MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0));
+        mRunningGpu.addAndGet(MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0));
     }
 
     private void decrementRunningCounters(Protos.TaskInfoOrBuilder aTaskInfo) {
-        mRunningCpu -= MesosUtils.getNamedResourceScalar("cpus", aTaskInfo, 0);
-        mRunningMem -= MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0);
-        mRunningDisk -= MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0);
-        mRunningGpu -= MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0);
+        mRunningCpu.set(mRunningCpu.get() - MesosUtils.getNamedResourceScalar("cpus", aTaskInfo, 0));
+        mRunningMem.set(mRunningMem.get() - MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0));
+        mRunningDisk.set(mRunningDisk.get() - MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0));
+        mRunningGpu.set(mRunningGpu.get() - MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0));
     }
 
 }

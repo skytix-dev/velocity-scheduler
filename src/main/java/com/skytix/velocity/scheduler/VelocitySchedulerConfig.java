@@ -28,5 +28,6 @@ public class VelocitySchedulerConfig extends SchedulerConfig {
     private TaskEventHandler defaultTaskEventHandler = null;
     @Builder.Default
     private HeartbeatListener heartbeatListener = null;
-
+    @Builder.Default
+    private Integer numOfferConsumers = 5;
 }

@@ -37,6 +37,10 @@ public class VelocityTask implements Task {
         return finishTime != null;
     }
 
+    public String getTaskId() {
+        return getTaskDefinition().getTaskInfo().getTaskId().getValue();
+    }
+
     @Override
     public int compareTo(VelocityTask o) {
         return new CompareToBuilder()

@@ -3,11 +3,20 @@ package com.skytix.velocity.mesos;
 import com.skytix.schedulerclient.mesos.MesosConstants;
 import org.apache.mesos.v1.Protos;
 
+import java.util.Arrays;
 import java.util.UUID;
 
 public final class Tasks {
 
-    public static Protos.TaskInfo.Builder docker(String taskName, String image, String command, double cpu, double gpu, double mem, double disk) {
+    public static Protos.TaskInfo.Builder docker(String taskName, String image, double cpu, double gpu, double mem, double disk, boolean shell, String command, String... args) {
+
+        final Protos.CommandInfo.Builder commandInfo = Protos.CommandInfo.newBuilder()
+                .setValue(command)
+                .setShell(shell);
+
+        if (args != null && args.length > 0) {
+            commandInfo.addAllArguments(Arrays.asList(args));
+        }
 
         final Protos.TaskInfo.Builder taskInfo = task(taskName, cpu, gpu, mem, disk)
                 .setContainer(
@@ -16,15 +25,11 @@ public final class Tasks {
                                 .setDocker(
                                         Protos.ContainerInfo.DockerInfo.newBuilder()
                                                 .setImage(image)
-                                                .setPrivileged(true)
+                                                .setPrivileged(false)
                                 )
 
                 )
-                .setCommand(
-                        Protos.CommandInfo.newBuilder()
-                                .setValue(command)
-                                .setShell(true)
-                );
+                .setCommand(commandInfo);
 
         return taskInfo;
     }
