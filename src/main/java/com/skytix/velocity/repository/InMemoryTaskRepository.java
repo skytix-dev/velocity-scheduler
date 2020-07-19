@@ -23,8 +23,8 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     private final VelocitySchedulerConfig mConfig;
     private final Map<String, VelocityTask> mTaskInfoByTaskId = new HashMap<>();
     private final Semaphore mTaskQueue;
-    private final Map<Priority, Set<VelocityTask>> mAwaitingTasks = new HashMap<>();
-    private final Map<Priority, Set<VelocityTask>> mAwaitingGpuTasks = new HashMap<>();
+    private final Map<Enum<? extends Priority>, Set<VelocityTask>> mAwaitingTasks = new HashMap<>();
+    private final Map<Enum<? extends Priority>, Set<VelocityTask>> mAwaitingGpuTasks = new HashMap<>();
     private final List<VelocityTask> mRunningTasks = new ArrayList<>();
 
     private final AtomicInteger mTotalWaitingTasks = new AtomicInteger(0);
@@ -40,9 +40,17 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     private AtomicDouble mRunningGpu = new AtomicDouble(0);
 
     private final AtomicInteger mTotalTaskCounter = new AtomicInteger(0);
+    private final List<Enum<? extends Priority>> mTaskPriorities;
 
     public InMemoryTaskRepository(MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
         mConfig = aConfig;
+
+        if (mConfig.getPriorites() != null) {
+            mTaskPriorities = Arrays.asList(mConfig.getPriorites().getEnumConstants());
+
+        } else {
+            mTaskPriorities = Arrays.asList(DefaultPriority.values());
+        }
 
         final Integer maxTaskQueueSize = aConfig.getMaxTaskQueueSize();
 
@@ -79,6 +87,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     private synchronized void queueTask(VelocityTask aTask, boolean aIsRetry) throws VelocityTaskException {
         final TaskDefinition definition = aTask.getTaskDefinition();
+        final Enum<? extends Priority> priority = definition.getPriority() != null ? definition.getPriority() : DefaultPriority.STANDARD;
 
         if (definition.hasTaskId()) {
 
@@ -93,14 +102,14 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
                     if (taskGpus > 0) {
 
                         if (mConfig.isEnableGPUResources()) {
-                            mAwaitingGpuTasks.get(aTask.getPriority()).add(aTask);
+                            mAwaitingGpuTasks.get(priority).add(aTask);
 
                         } else {
                             throw new TaskValidationException("Unable to request GPU as GPU resources have not been enabled in the scheduler config");
                         }
 
                     } else {
-                        mAwaitingTasks.get(aTask.getPriority()).add(aTask);
+                        mAwaitingTasks.get(priority).add(aTask);
                     }
 
                     incrementWaitingCounters(taskInfo);
@@ -159,14 +168,15 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
         for (Protos.TaskInfo task : aTasks) {
             final VelocityTask velocityTask = mTaskInfoByTaskId.get(task.getTaskId().getValue());
             final double taskGpus = MesosUtils.getGpus(task, 0);
+            final Enum<? extends Priority> priority = velocityTask.getTaskDefinition().getPriority();
 
             velocityTask.setTaskInfo(task);
 
             if (taskGpus > 0) {
-                mAwaitingGpuTasks.get(velocityTask.getPriority()).remove(velocityTask);
+                mAwaitingGpuTasks.get(priority).remove(velocityTask);
 
             } else {
-                mAwaitingTasks.get(velocityTask.getPriority()).remove(velocityTask);
+                mAwaitingTasks.get(priority).remove(velocityTask);
             }
 
             decrementWaitingCounters(task);
@@ -238,9 +248,9 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     }
 
-    private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Map<Priority, Set<VelocityTask>> aAwaitingTasks) {
+    private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Map<Enum<? extends Priority>, Set<VelocityTask>> aAwaitingTasks) {
 
-        Arrays.stream(Priority.values()).sorted(Comparator.comparing(Enum::ordinal)).forEach((priority) -> {
+        mTaskPriorities.stream().sorted(Comparator.comparing(Enum::ordinal)).forEach((priority) -> {
 
             for (VelocityTask velocityTask : aAwaitingTasks.get(priority)) {
                 final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
@@ -344,15 +354,15 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     private void configurePriorityQueues() {
-        Arrays.stream(Priority.values()).forEach((priority) -> mAwaitingTasks.put(priority, new ConcurrentSkipListSet<>()));
-        Arrays.stream(Priority.values()).forEach((priority) -> mAwaitingGpuTasks.put(priority, new ConcurrentSkipListSet<>()));
+        mTaskPriorities.forEach((priority) -> mAwaitingTasks.put(priority, new ConcurrentSkipListSet<>()));
+        mTaskPriorities.forEach((priority) -> mAwaitingGpuTasks.put(priority, new ConcurrentSkipListSet<>()));
     }
 
     private void configureMetrics(MeterRegistry aMeterRegistry) {
         aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningTasks", mRunningTasks, List::size);
         aMeterRegistry.gauge("velocity.gauge.scheduler.totalWaitingTasks", mTotalWaitingTasks, AtomicInteger::get);
 
-        Arrays.stream(Priority.values()).forEach((priority) -> {
+        mTaskPriorities.forEach((priority) -> {
             aMeterRegistry.gauge(String.format("velocity.gauge.scheduler.numWaitingTasks_%s", priority.name()), mAwaitingTasks.get(priority), Set::size);
             aMeterRegistry.gauge(String.format("velocity.gauge.scheduler.numWaitingGpuTasks_%s", priority.name()), mAwaitingGpuTasks.get(priority), Set::size);
         });

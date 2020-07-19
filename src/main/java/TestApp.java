@@ -1,6 +1,7 @@
 import com.skytix.velocity.VelocityMesosScheduler;
 import com.skytix.velocity.entities.TaskDefinition;
 import com.skytix.velocity.mesos.Tasks;
+import com.skytix.velocity.scheduler.DefaultPriority;
 import com.skytix.velocity.scheduler.MesosScheduler;
 import com.skytix.velocity.scheduler.VelocitySchedulerConfig;
 
@@ -14,6 +15,7 @@ public class TestApp {
             final VelocitySchedulerConfig config = VelocitySchedulerConfig.builder()
                     .frameworkID("marc-test-scheduler")
                     .mesosMasterURL("https://mesos.dev.redeye.co")
+                    .priorites(DefaultPriority.class)
                     .disableSSLTrust(true)
                     .enableGPUResources(true)
                     .restrictedGpuScheduling(false)
@@ -29,6 +31,7 @@ public class TestApp {
 
                     final TaskDefinition taskDef = TaskDefinition.from(
                             Tasks.docker("My special test", "ubuntu", 0.1, 0, 0.01, 0, true, "ls -la"),
+                            DefaultPriority.STANDARD,
                             (event) -> {
 
                                 switch (event.getStatus().getState()) {

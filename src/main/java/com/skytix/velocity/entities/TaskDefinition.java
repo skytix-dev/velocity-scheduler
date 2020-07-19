@@ -15,24 +15,16 @@ import java.util.List;
 @Builder
 public class TaskDefinition {
     private final Protos.TaskInfo.Builder taskInfo;
-    private final Priority priority;
+    private final Enum<? extends Priority> priority;
     private final TaskEventHandler taskEventHandler;
     private final List<OfferPredicate> conditions;
     private final double memoryTolerance = 0.0; // Default memory tolerance set to 0%.  Task will launch if an offer has within x% of the demanded memory.
 
-    public static TaskDefinition from(Protos.TaskInfo.Builder aTaskInfo, OfferPredicate... aConditions) {
-        return from(aTaskInfo, Priority.NORMAL, null, aConditions);
-    }
-
-    public static TaskDefinition from(Protos.TaskInfo.Builder aTaskInfo, Priority aPriority, OfferPredicate... aConditions) {
+    public static TaskDefinition from(Protos.TaskInfo.Builder aTaskInfo, Enum<? extends Priority> aPriority, OfferPredicate... aConditions) {
         return from(aTaskInfo, aPriority, null, aConditions);
     }
 
-    public static TaskDefinition from(Protos.TaskInfo.Builder aTaskInfo, TaskEventHandler aEventHandler, OfferPredicate... aConditions) {
-        return from(aTaskInfo, Priority.NORMAL, aEventHandler, aConditions);
-    }
-
-    public static TaskDefinition from(Protos.TaskInfo.Builder aTaskInfo, Priority aPriority, TaskEventHandler aEventHandler, OfferPredicate... aConditions) {
+    public static TaskDefinition from(Protos.TaskInfo.Builder aTaskInfo, Enum<? extends Priority> aPriority, TaskEventHandler aEventHandler, OfferPredicate... aConditions) {
 
         return TaskDefinition.builder()
                 .taskInfo(aTaskInfo)
