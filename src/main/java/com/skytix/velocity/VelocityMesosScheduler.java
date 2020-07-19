@@ -307,7 +307,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
         int numActiveTasks = getNumActiveTasks();
         int numQueuedTasks = getNumQueuedTasks();
 
-        while (numActiveTasks > 0 && numQueuedTasks > 0) {
+        while (numActiveTasks > 0 || numQueuedTasks > 0) {
             log.info(String.format("Waiting on task completion.  #Queued: %d, #Active: %d.", numQueuedTasks, numActiveTasks));
 
             Thread.sleep(2000);
