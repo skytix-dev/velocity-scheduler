@@ -1,6 +1,5 @@
 package com.skytix.velocity.mesos;
 
-import com.skytix.schedulerclient.mesos.MesosConstants;
 import org.apache.mesos.v1.Protos;
 
 import java.util.Arrays;
@@ -39,42 +38,15 @@ public final class Tasks {
                 .setTaskId(Protos.TaskID.newBuilder().setValue(UUID.randomUUID().toString()))
                 .setName(taskName);
 
-        taskInfo.addResources(
-                Protos.Resource.newBuilder()
-                        .setName(MesosConstants.SCALAR_CPU)
-                        .setType(Protos.Value.Type.SCALAR)
-                        .setScalar(Protos.Value.Scalar.newBuilder().setValue(cpu))
-                        .build()
-        );
-
-        taskInfo.addResources(
-                Protos.Resource.newBuilder()
-                        .setName(MesosConstants.SCALAR_MEM)
-                        .setType(Protos.Value.Type.SCALAR)
-                        .setScalar(Protos.Value.Scalar.newBuilder().setValue(mem))
-                        .build()
-        );
+        taskInfo.addResources(MesosUtils.createCpuResource(cpu));
+        taskInfo.addResources(MesosUtils.createMemResource(mem));
 
         if (gpu > 0) {
-            taskInfo.addResources(
-                    Protos.Resource.newBuilder()
-                            .setName(MesosConstants.SCALAR_GPU)
-                            .setType(Protos.Value.Type.SCALAR)
-                            .setScalar(Protos.Value.Scalar.newBuilder().setValue(gpu))
-                            .build()
-            );
-
+            taskInfo.addResources(MesosUtils.createGpuResource(gpu));
         }
 
         if (disk > 0) {
-            taskInfo.addResources(
-                    Protos.Resource.newBuilder()
-                            .setName(MesosConstants.SCALAR_DISK)
-                            .setType(Protos.Value.Type.SCALAR)
-                            .setScalar(Protos.Value.Scalar.newBuilder().setValue(disk))
-                            .build()
-            );
-
+            taskInfo.addResources(MesosUtils.createDiskResource(disk));
         }
 
         return taskInfo;

@@ -1,5 +1,6 @@
 package com.skytix.velocity.entities;
 
+import com.skytix.velocity.scheduler.Priority;
 import com.skytix.velocity.scheduler.TaskRemote;
 import lombok.Builder;
 import lombok.Getter;
@@ -22,6 +23,7 @@ public class VelocityTask implements Task {
     private LocalDateTime startTime;
     private LocalDateTime finishTime;
     private Protos.TaskState state;
+    private Priority priority;
     @Builder.Default
     private boolean started = false;
     @Builder.Default

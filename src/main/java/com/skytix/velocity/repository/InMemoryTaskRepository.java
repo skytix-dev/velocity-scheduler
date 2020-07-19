@@ -1,6 +1,7 @@
 package com.skytix.velocity.repository;
 
 import com.google.common.util.concurrent.AtomicDouble;
+import com.skytix.schedulerclient.mesos.MesosConstants;
 import com.skytix.velocity.TaskValidationException;
 import com.skytix.velocity.VelocityTaskException;
 import com.skytix.velocity.entities.TaskDefinition;
@@ -22,8 +23,8 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     private final VelocitySchedulerConfig mConfig;
     private final Map<String, VelocityTask> mTaskInfoByTaskId = new HashMap<>();
     private final Semaphore mTaskQueue;
-    private final Set<VelocityTask> mAwaitingTasks = new ConcurrentSkipListSet<>();
-    private final Set<VelocityTask> mAwaitingGpuTasks = new ConcurrentSkipListSet<>();
+    private final Map<Priority, Set<VelocityTask>> mAwaitingTasks = new HashMap<>();
+    private final Map<Priority, Set<VelocityTask>> mAwaitingGpuTasks = new HashMap<>();
     private final List<VelocityTask> mRunningTasks = new ArrayList<>();
 
     private final AtomicInteger mTotalWaitingTasks = new AtomicInteger(0);
@@ -52,17 +53,8 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
             throw new IllegalArgumentException("maxTaskQueueSize must be greater than zero");
         }
 
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningTasks", mRunningTasks, List::size);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingTasks", mTotalWaitingTasks, AtomicInteger::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numTotalTasks", mTotalTaskCounter, AtomicInteger::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingCpu", mWaitingCpu, AtomicDouble::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingMem", mWaitingMem, AtomicDouble::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingDisk", mWaitingDisk, AtomicDouble::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingGpu", mWaitingGpu, AtomicDouble::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningCpu", mRunningCpu, AtomicDouble::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningMem", mRunningMem, AtomicDouble::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningDisk", mRunningDisk, AtomicDouble::get);
-        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningGpu", mRunningGpu, AtomicDouble::get);
+        configurePriorityQueues();
+        configureMetrics(aMeterRegistry);
     }
 
     @Override
@@ -74,8 +66,8 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     public synchronized List<VelocityTask> getQueuedTasks() {
         final List<VelocityTask> tasks = new ArrayList<>();
 
-        tasks.addAll(mAwaitingGpuTasks);
-        tasks.addAll(mAwaitingTasks);
+        mAwaitingGpuTasks.forEach((key, value) -> tasks.addAll(value));
+        mAwaitingTasks.forEach((key, value) -> tasks.addAll(value));
 
         return tasks;
     }
@@ -101,14 +93,14 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
                     if (taskGpus > 0) {
 
                         if (mConfig.isEnableGPUResources()) {
-                            mAwaitingGpuTasks.add(aTask);
+                            mAwaitingGpuTasks.get(aTask.getPriority()).add(aTask);
 
                         } else {
                             throw new TaskValidationException("Unable to request GPU as GPU resources have not been enabled in the scheduler config");
                         }
 
                     } else {
-                        mAwaitingTasks.add(aTask);
+                        mAwaitingTasks.get(aTask.getPriority()).add(aTask);
                     }
 
                     incrementWaitingCounters(taskInfo);
@@ -171,10 +163,10 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
             velocityTask.setTaskInfo(task);
 
             if (taskGpus > 0) {
-                mAwaitingGpuTasks.remove(velocityTask);
+                mAwaitingGpuTasks.get(velocityTask.getPriority()).remove(velocityTask);
 
             } else {
-                mAwaitingTasks.remove(velocityTask);
+                mAwaitingTasks.get(velocityTask.getPriority()).remove(velocityTask);
             }
 
             decrementWaitingCounters(task);
@@ -246,15 +238,17 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     }
 
-    private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Set<VelocityTask> aAwaitingTasks) {
+    private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Map<Priority, Set<VelocityTask>> aAwaitingTasks) {
 
-        for (VelocityTask velocityTask : aAwaitingTasks) {
-            final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
-            final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
+        Arrays.stream(Priority.values()).sorted(Comparator.comparing(Enum::ordinal)).forEach((priority) -> {
 
-            try {
+            for (VelocityTask velocityTask : aAwaitingTasks.get(priority)) {
+                final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
+                final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
+                final double memoryTolerance = taskDefinition.getMemoryTolerance();
 
-                if (aOfferBucket.hasResources(taskInfo)) {
+                try {
+                    final boolean meetsConditions;
 
                     if (taskDefinition.hasConditions()) {
                         boolean condition = true;
@@ -263,22 +257,57 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
                             condition = condition && predicate.test(aOffer);
                         }
 
-                        if (condition) {
+                        meetsConditions = condition;
+
+                    } else {
+                        meetsConditions = true;
+                    }
+
+                    if (meetsConditions) {
+
+                        if (aOfferBucket.hasResources(taskInfo)) {
                             aOfferBucket.add(taskInfo);
+
+                        } else {
+
+                            if (aOfferBucket.hasCpuResources(taskInfo) && aOfferBucket.hasDiskResources(taskInfo) && aOfferBucket.hasGpuResources(taskInfo)) {
+                                // If we have enough of all other resources, check the memory tolerance.
+                                if (memoryTolerance > 0) {
+                                    final double memDemanded = MesosUtils.getMem(taskInfo, 0);
+                                    final double minMemoryDemanded = memDemanded - (memDemanded * (memoryTolerance / 100));
+                                    final double availableMemory = aOfferBucket.getOfferMem() - aOfferBucket.getAllocatedMem();
+
+                                    if (availableMemory >= minMemoryDemanded) {
+
+                                        log.info(String.format(
+                                                "Task '%s' demanded %fM of memory with a minimum threshold of %fM. Using remaining %fM available memory on the offer.",
+                                                taskInfo.getTaskId().getValue(),
+                                                memDemanded,
+                                                minMemoryDemanded,
+                                                availableMemory
+                                        ));
+
+                                        taskInfo.getResourcesList().remove(MesosUtils.getNamedResource(MesosConstants.SCALAR_MEM, taskInfo));
+                                        taskInfo.addResources(MesosUtils.createMemResource(availableMemory));
+
+                                        aOfferBucket.add(taskInfo);
+                                    }
+
+                                }
+
+                            }
 
                         }
 
-                    } else {
-                        aOfferBucket.add(taskInfo);
                     }
 
+                } catch (OfferBucketFullException aE) {
+                    break;
                 }
 
-            } catch (OfferBucketFullException aE) {
-                break;
             }
 
-        }
+        });
 
     }
 
@@ -312,6 +341,31 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
         mRunningMem.set(mRunningMem.get() - MesosUtils.getNamedResourceScalar("mem", aTaskInfo, 0));
         mRunningDisk.set(mRunningDisk.get() - MesosUtils.getNamedResourceScalar("disk", aTaskInfo, 0));
         mRunningGpu.set(mRunningGpu.get() - MesosUtils.getNamedResourceScalar("gpus", aTaskInfo, 0));
+    }
+
+    private void configurePriorityQueues() {
+        Arrays.stream(Priority.values()).forEach((priority) -> mAwaitingTasks.put(priority, new ConcurrentSkipListSet<>()));
+        Arrays.stream(Priority.values()).forEach((priority) -> mAwaitingGpuTasks.put(priority, new ConcurrentSkipListSet<>()));
+    }
+
+    private void configureMetrics(MeterRegistry aMeterRegistry) {
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningTasks", mRunningTasks, List::size);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.totalWaitingTasks", mTotalWaitingTasks, AtomicInteger::get);
+
+        Arrays.stream(Priority.values()).forEach((priority) -> {
+            aMeterRegistry.gauge(String.format("velocity.gauge.scheduler.numWaitingTasks_%s", priority.name()), mAwaitingTasks.get(priority), Set::size);
+            aMeterRegistry.gauge(String.format("velocity.gauge.scheduler.numWaitingGpuTasks_%s", priority.name()), mAwaitingGpuTasks.get(priority), Set::size);
+        });
+
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numTotalTasks", mTotalTaskCounter, AtomicInteger::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingCpu", mWaitingCpu, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingMem", mWaitingMem, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingDisk", mWaitingDisk, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numWaitingGpu", mWaitingGpu, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningCpu", mRunningCpu, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningMem", mRunningMem, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningDisk", mRunningDisk, AtomicDouble::get);
+        aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningGpu", mRunningGpu, AtomicDouble::get);
     }
 
 }

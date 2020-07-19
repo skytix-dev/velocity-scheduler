@@ -39,12 +39,20 @@ public class MesosUtils {
         return getNamedResourceScalar(MesosConstants.SCALAR_CPU, aTaskInfo, aDefaultValue);
     }
 
+    public static Protos.Resource createCpuResource(double aCpus) {
+        return createNamedScalarResource(MesosConstants.SCALAR_CPU, aCpus);
+    }
+
     public static double getGpus(Protos.OfferOrBuilder aOffer, double aDefaultValue) {
         return getNamedResourceScalar(MesosConstants.SCALAR_GPU, aOffer, aDefaultValue);
     }
 
     public static double getGpus(Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
         return getNamedResourceScalar(MesosConstants.SCALAR_GPU, aTaskInfo, aDefaultValue);
+    }
+
+    public static Protos.Resource createGpuResource(double aGpus) {
+        return createNamedScalarResource(MesosConstants.SCALAR_GPU, aGpus);
     }
 
     public static double getMem(Protos.OfferOrBuilder aOffer, double aDefaultValue) {
@@ -55,12 +63,29 @@ public class MesosUtils {
         return getNamedResourceScalar(MesosConstants.SCALAR_MEM, aTaskInfo, aDefaultValue);
     }
 
+    public static Protos.Resource createMemResource(double aMem) {
+        return createNamedScalarResource(MesosConstants.SCALAR_MEM, aMem);
+    }
+
     public static double getDisk(Protos.OfferOrBuilder aOffer, double aDefaultValue) {
         return getNamedResourceScalar(MesosConstants.SCALAR_DISK, aOffer, aDefaultValue);
     }
 
     public static double getDisk(Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
         return getNamedResourceScalar(MesosConstants.SCALAR_DISK, aTaskInfo, aDefaultValue);
+    }
+
+    public static Protos.Resource createDiskResource(double aDisk) {
+        return createNamedScalarResource(MesosConstants.SCALAR_DISK, aDisk);
+    }
+
+    public static Protos.Resource createNamedScalarResource(String aName, double aValue) {
+
+        return Protos.Resource.newBuilder()
+                .setName(aName)
+                .setType(Protos.Value.Type.SCALAR)
+                .setScalar(Protos.Value.Scalar.newBuilder().setValue(aValue))
+                .build();
     }
 
     public static double getNamedResourceScalar(String aName, Protos.OfferOrBuilder aOffer, double aDefaultValue) {

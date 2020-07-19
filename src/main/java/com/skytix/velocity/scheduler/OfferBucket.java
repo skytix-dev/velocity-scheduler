@@ -40,10 +40,11 @@ public class OfferBucket {
         if (mAllocatedTasks.size() < mMaxTasksPerOffer) {
 
             if (mOfferCpus > 0 && mOfferMem > 0) {
-                return mAllocatedCpus + MesosUtils.getCpus(aTaskInfo, 0) <= mOfferCpus &&
-                        mAllocatedMem + MesosUtils.getMem(aTaskInfo, 0) <= mOfferMem &&
-                        mAllocatedDisk + MesosUtils.getDisk(aTaskInfo, 0) <= mOfferDisk &&
-                        mAllocatedGpus + MesosUtils.getGpus(aTaskInfo, 0) <= mOfferGpus;
+
+                return hasCpuResources(aTaskInfo) &&
+                        hasMemResources(aTaskInfo) &&
+                        hasDiskResources(aTaskInfo) &&
+                        hasGpuResources(aTaskInfo);
 
             } else {
                 // If there's no cpu or mem available.  Then nothing more will run.
@@ -56,6 +57,22 @@ public class OfferBucket {
 
     }
 
+    public synchronized boolean hasCpuResources(Protos.TaskInfoOrBuilder aTaskInfo) {
+        return mAllocatedCpus + MesosUtils.getCpus(aTaskInfo, 0) <= mOfferCpus;
+    }
+
+    public synchronized boolean hasGpuResources(Protos.TaskInfoOrBuilder aTaskInfo) {
+        return mAllocatedGpus + MesosUtils.getGpus(aTaskInfo, 0) <= mOfferGpus;
+    }
+
+    public synchronized boolean hasMemResources(Protos.TaskInfoOrBuilder aTaskInfo) {
+        return mAllocatedMem + MesosUtils.getMem(aTaskInfo, 0) <= mOfferMem;
+    }
+
+    public synchronized boolean hasDiskResources(Protos.TaskInfoOrBuilder aTaskInfo) {
+        return mAllocatedDisk + MesosUtils.getDisk(aTaskInfo, 0) <= mOfferDisk;
+    }
+
     public synchronized void add(Protos.TaskInfo.Builder aTaskInfo) {
         mAllocatedCpus += MesosUtils.getCpus(aTaskInfo, 0);
         mAllocatedMem += MesosUtils.getMem(aTaskInfo, 0);
@@ -63,6 +80,38 @@ public class OfferBucket {
         mAllocatedGpus += MesosUtils.getGpus(aTaskInfo, 0);
 
         mAllocatedTasks.add(aTaskInfo);
+    }
+
+    public double getOfferCpus() {
+        return mOfferCpus;
+    }
+
+    public double getOfferMem() {
+        return mOfferMem;
+    }
+
+    public double getOfferDisk() {
+        return mOfferDisk;
+    }
+
+    public double getOfferGpus() {
+        return mOfferGpus;
+    }
+
+    public double getAllocatedCpus() {
+        return mAllocatedCpus;
+    }
+
+    public double getAllocatedMem() {
+        return mAllocatedMem;
+    }
+
+    public double getAllocatedDisk() {
+        return mAllocatedDisk;
+    }
+
+    public double getAllocatedGpus() {
+        return mAllocatedGpus;
     }
 
     public List<Protos.TaskInfo.Builder> getAllocatedTasks() {

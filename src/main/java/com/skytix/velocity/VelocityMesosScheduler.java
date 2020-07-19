@@ -219,6 +219,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
         mMeterRegistry.counter("velocity.counter.scheduler.taskLaunch").increment();
 
         final VelocityTask task = VelocityTask.builder()
+                .priority(aTaskDefinition.getPriority())
                 .taskDefinition(aTaskDefinition)
                 .created(LocalDateTime.now())
                 .build();
