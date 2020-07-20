@@ -103,19 +103,27 @@ public class OfferSubscriber implements Flow.Subscriber<Protos.Offer> {
     private boolean isAvailable(Protos.Offer aOffer) {
         final Protos.Unavailability unavailabilityInfo = aOffer.getUnavailability();
 
-        if (unavailabilityInfo != null) {
+        if (unavailabilityInfo.isInitialized()) {
             final LocalDateTime now = LocalDateTime.now();
-            final LocalDateTime start = LocalDateTime.from(Instant.ofEpochMilli(unavailabilityInfo.getStart().getNanoseconds() / 1000000));
+            final Protos.TimeInfo startInfo = unavailabilityInfo.getStart();
 
-            // No duration means maintenance lasts forever.
-            if (unavailabilityInfo.getDuration() != null) {
-                final Duration duration = Duration.of(unavailabilityInfo.getDuration().getNanoseconds(), ChronoUnit.NANOS);
-                final LocalDateTime end = start.plus(duration);
+            if (startInfo.isInitialized()) {
+                final LocalDateTime start = LocalDateTime.from(Instant.ofEpochMilli(startInfo.getNanoseconds() / 1000000));
+                final Protos.DurationInfo durationInfo = unavailabilityInfo.getDuration();
 
-                return now.isBefore(start) || now.isAfter(end) || now.isEqual(end);
+                // No duration means maintenance lasts forever.
+                if (durationInfo != null && durationInfo.isInitialized()) {
+                    final Duration duration = Duration.of(durationInfo.getNanoseconds(), ChronoUnit.NANOS);
+                    final LocalDateTime end = start.plus(duration);
+
+                    return now.isBefore(start) || now.isAfter(end) || now.isEqual(end);
+
+                } else {
+                    return now.isBefore(start);
+                }
 
             } else {
-                return now.isBefore(start);
+                return true;
             }
 
         } else {
