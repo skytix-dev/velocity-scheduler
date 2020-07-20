@@ -130,13 +130,6 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                                 .build()
                 );
 
-                if (taskEventHandler != null) {
-                    taskEventHandler.onEvent(update);
-
-                } else if (mDefaultUpdateHandler != null) {
-                    mDefaultUpdateHandler.onEvent(update);
-                }
-
             } else {
                 // We don't know about the task anymore so acknowledge the updates.
                 acknowledge(updateStatus);

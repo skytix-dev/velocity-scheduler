@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Executor;
 import java.util.concurrent.SubmissionPublisher;
 import java.util.concurrent.TimeUnit;
 
@@ -32,7 +32,7 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
     private LocalDateTime mLastHeartbeat = null;
     private int mHeartbeatInterval = 0;
 
-    public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig, ForkJoinPool aMainThreadPool, ForkJoinPool aGeneralThreadPool) {
+    public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig, Executor aMainThreadPool, Executor aGeneralThreadPool) {
         mTaskRepository = aTaskRepository;
         mMeterRegistry = aMeterRegistry;
         mSchedulerConfig = aConfig;
@@ -47,6 +47,7 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
         if (maxUpdateQueueSize <= 0) {
             throw new IllegalArgumentException("maxUpdateQueueSize must be create than zero");
         }
+
 
         mOfferPublisher = new SubmissionPublisher<>(aMainThreadPool, maxOfferQueueSize);
         mUpdatePublisher = new SubmissionPublisher<>(aMainThreadPool, maxUpdateQueueSize);

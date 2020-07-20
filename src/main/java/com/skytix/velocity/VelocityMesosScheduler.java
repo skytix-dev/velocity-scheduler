@@ -17,8 +17,9 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.SubmissionPublisher;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -33,12 +34,12 @@ public class VelocityMesosScheduler implements MesosScheduler {
     private final TaskRepository<VelocityTask> mTaskRepository;
     private final MeterRegistry mMeterRegistry;
     private final VelocitySchedulerConfig mSchedulerConfig;
-    private final ForkJoinTask<?> mReconnectTask;
+    private final Future<?> mReconnectTask;
     private final Object mErrorMonitor = new Object();
     private final AtomicReference<RunningState> mSchedulerRunningState = new AtomicReference<>(RunningState.STOPPED);
 
-    private final ForkJoinPool mMainThreadPool = new ForkJoinPool(5);
-    private final ForkJoinPool mTaskGeneralThreadPool = new ForkJoinPool(4);
+    private final ExecutorService mMainThreadPool = Executors.newFixedThreadPool(6);
+    private final ExecutorService mTaskGeneralThreadPool = Executors.newFixedThreadPool(5);
 
     public VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig) {
         this(aSchedulerConfig, new SimpleMeterRegistry());
@@ -74,7 +75,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
                 }
 
             } catch (InterruptedException aE) {
-                log.error(aE.getMessage(), aE);
+                // Do nothing.  We will exit.
             }
 
         });
@@ -117,7 +118,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
             }
 
         } catch (InterruptedException aE) {
-            log.error("Interrupted");
+            // Do nothing.  Just exit.
         }
 
     }
@@ -164,7 +165,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
                                 }
 
                             } catch (InterruptedException aE) {
-                                log.error(aE.getMessage(), aE);
+                                // Do nothing.  Just exit.
                             }
 
                         }
