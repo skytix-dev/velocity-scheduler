@@ -3,7 +3,9 @@ package com.skytix.velocity.scheduler;
 import com.skytix.velocity.VelocityTaskException;
 import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.repository.TaskRepository;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.mesos.v1.Protos;
 import org.apache.mesos.v1.scheduler.Protos.Event.Update;
@@ -20,7 +22,12 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
     private final SubmissionPublisher<TaskUpdateEvent> mEventUpdatePublisher;
     private final SchedulerRemoteProvider mRemote;
     private final TaskEventHandler mDefaultUpdateHandler;
+
     private final MeterRegistry mMeterRegistry;
+    private final Counter mCompletedTasksCounter;
+    private final Timer mTaskDurationTimer;
+    private final Counter mRetriedTasksCounter;
+    private final Counter mFailedTasksCounter;
 
     private Flow.Subscription mSubscription;
 
@@ -29,7 +36,12 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
         mEventUpdatePublisher = aSubmissionPublisher;
         mRemote = aRemote;
         mDefaultUpdateHandler = aDefaultUpdateHandler;
+
         mMeterRegistry = aMeterRegistry;
+        mCompletedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.completedTasks");
+        mTaskDurationTimer = mMeterRegistry.timer("velocity.timer.scheduler.taskDuration");
+        mRetriedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.retriedTasks");
+        mFailedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.failedTasks");
 
         mEventUpdatePublisher.subscribe(new TaskEventUpdateSubscriber(aDefaultUpdateHandler));
     }
@@ -70,8 +82,10 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                             task.setFinishTime(LocalDateTime.now());
 
                             mTaskRepository.completeTask(task);
-                            mMeterRegistry.counter("velocity.counter.scheduler.completedTasks").increment();
-                            mMeterRegistry.timer("velocity.timer.scheduler.taskDuration").record(Duration.between(task.getStartTime(), task.getFinishTime()));
+
+                            mCompletedTasksCounter.increment();
+
+                            mTaskDurationTimer.record(Duration.between(task.getStartTime(), task.getFinishTime()));
 
                             if (mTaskRepository.getNumQueuedTasks() == 0 && mTaskRepository.getNumActiveTasks() == 0) {
                                 log.debug("Scheduler is idle. Suppressing offers");
@@ -99,7 +113,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                                 // Retry the task since it may be ephemeral.
                                 try {
                                     log.debug(String.format("Task %s failed for reason: %s. Retrying...", updateStatus.getTaskId(), updateStatus.getReason()));
-                                    mMeterRegistry.counter("velocity.counter.scheduler.retriedTasks").increment();
+                                    mRetriedTasksCounter.increment();
                                     mTaskRepository.retryTask(task);
 
                                 } catch (VelocityTaskException aE) {
@@ -109,7 +123,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                                 break;
 
                             default:
-                                mMeterRegistry.counter("velocity.counter.scheduler.failedTasks").increment();
+                                mFailedTasksCounter.increment();
                                 log.debug(String.format("Task %s failed for reason: (%s) %s.", updateStatus.getTaskId(), updateStatus.getReason(), updateStatus.getMessage()));
                                 task.setFinishTime(LocalDateTime.now());
                                 mTaskRepository.completeTask(task);
@@ -118,10 +132,6 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
 
                         break;
                 }
-
-                // In the event that a scheduler needs to reconnect, it may get take UPDATE messages from tasks it
-                // no longer knows about so the default update handler will be invoked if it's defined.
-                final TaskEventHandler taskEventHandler = task.getTaskDefinition().getTaskEventHandler();
 
                 mEventUpdatePublisher.submit(
                         TaskUpdateEvent.builder()

@@ -6,6 +6,7 @@ import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.repository.InMemoryTaskRepository;
 import com.skytix.velocity.repository.TaskRepository;
 import com.skytix.velocity.scheduler.*;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +41,8 @@ public class VelocityMesosScheduler implements MesosScheduler {
 
     private final ExecutorService mMainThreadPool = Executors.newFixedThreadPool(6);
     private final ExecutorService mTaskGeneralThreadPool = Executors.newFixedThreadPool(5);
+
+    private final Counter mTaskLaunchCounter;
 
     public VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig) {
         this(aSchedulerConfig, new SimpleMeterRegistry());
@@ -79,6 +82,8 @@ public class VelocityMesosScheduler implements MesosScheduler {
             }
 
         });
+
+        mTaskLaunchCounter = mMeterRegistry.counter("velocity.counter.scheduler.taskLaunch");
 
         handleReconnect();
     }
@@ -224,7 +229,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
 
     @Override
     public VelocityTask launch(TaskDefinition aTaskDefinition) throws VelocityTaskException {
-        mMeterRegistry.counter("velocity.counter.scheduler.taskLaunch").increment();
+        mTaskLaunchCounter.increment();
 
         final VelocityTask task = VelocityTask.builder()
                 .taskDefinition(aTaskDefinition)

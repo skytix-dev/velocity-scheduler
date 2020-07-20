@@ -2,6 +2,7 @@ package com.skytix.velocity.scheduler;
 
 import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.repository.TaskRepository;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.mesos.v1.Protos;
@@ -9,6 +10,7 @@ import org.apache.mesos.v1.Protos;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
@@ -20,12 +22,15 @@ public class OfferSubscriber implements Flow.Subscriber<Protos.Offer> {
     private final SchedulerRemoteProvider mRemote;
     private final MeterRegistry mMeterRegistry;
     private Flow.Subscription mSubscription;
+    private final Counter mOfferTasksLaunchedCounter;
 
 
     public OfferSubscriber(TaskRepository<VelocityTask> aTaskRepository, SchedulerRemoteProvider aRemote, MeterRegistry aMeterRegistry) {
         mTaskRepository = aTaskRepository;
         mRemote = aRemote;
         mMeterRegistry = aMeterRegistry;
+
+        mOfferTasksLaunchedCounter = mMeterRegistry.counter("velocity.counter.scheduler.offerTasksLaunched");
     }
 
     @Override
@@ -48,7 +53,7 @@ public class OfferSubscriber implements Flow.Subscriber<Protos.Offer> {
                     final List<Protos.TaskInfo> infoList = operation.getLaunch().getTaskInfosList();
                     final int numTasks = infoList.size();
 
-                    mMeterRegistry.counter("velocity.counter.scheduler.offerTasksLaunched").increment(numTasks);
+                    mOfferTasksLaunchedCounter.increment(numTasks);
 
                     mTaskRepository.launchTasks(infoList);
 
@@ -108,7 +113,7 @@ public class OfferSubscriber implements Flow.Subscriber<Protos.Offer> {
             final Protos.TimeInfo startInfo = unavailabilityInfo.getStart();
 
             if (startInfo.isInitialized()) {
-                final LocalDateTime start = LocalDateTime.from(Instant.ofEpochMilli(startInfo.getNanoseconds() / 1000000));
+                final LocalDateTime start = Instant.ofEpochMilli(startInfo.getNanoseconds() / 1000000).atZone(ZoneId.systemDefault()).toLocalDateTime();
                 final Protos.DurationInfo durationInfo = unavailabilityInfo.getDuration();
 
                 // No duration means maintenance lasts forever.
