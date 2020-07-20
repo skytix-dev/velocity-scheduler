@@ -71,7 +71,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
-    public synchronized List<VelocityTask> getQueuedTasks() {
+    public List<VelocityTask> getQueuedTasks() {
         final List<VelocityTask> tasks = new ArrayList<>();
 
         mAwaitingGpuTasks.forEach((key, value) -> tasks.addAll(value));
@@ -81,11 +81,11 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
-    public synchronized void queueTask(VelocityTask aTask) throws VelocityTaskException {
+    public void queueTask(VelocityTask aTask) throws VelocityTaskException {
         queueTask(aTask, false);
     }
 
-    private synchronized void queueTask(VelocityTask aTask, boolean aIsRetry) throws VelocityTaskException {
+    private void queueTask(VelocityTask aTask, boolean aIsRetry) throws VelocityTaskException {
         final TaskDefinition definition = aTask.getTaskDefinition();
         final Enum<? extends Priority> priority = definition.getPriority() != null ? definition.getPriority() : DefaultPriority.STANDARD;
 
@@ -97,22 +97,24 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
                     final Protos.TaskInfo.Builder taskInfo = definition.getTaskInfo();
                     final double taskGpus = MesosUtils.getGpus(taskInfo, 0);
 
-                    mTaskInfoByTaskId.put(taskInfo.getTaskId().getValue(), aTask);
+                    synchronized (this) {
+                        mTaskInfoByTaskId.put(taskInfo.getTaskId().getValue(), aTask);
 
-                    if (taskGpus > 0) {
+                        if (taskGpus > 0) {
 
-                        if (mConfig.isEnableGPUResources()) {
-                            mAwaitingGpuTasks.get(priority).add(aTask);
+                            if (mConfig.isEnableGPUResources()) {
+                                mAwaitingGpuTasks.get(priority).add(aTask);
+
+                            } else {
+                                throw new TaskValidationException("Unable to request GPU as GPU resources have not been enabled in the scheduler config");
+                            }
 
                         } else {
-                            throw new TaskValidationException("Unable to request GPU as GPU resources have not been enabled in the scheduler config");
+                            mAwaitingTasks.get(priority).add(aTask);
                         }
 
-                    } else {
-                        mAwaitingTasks.get(priority).add(aTask);
+                        incrementWaitingCounters(taskInfo);
                     }
-
-                    incrementWaitingCounters(taskInfo);
 
                 } else {
                     throw new TaskQueueFullException();
@@ -129,10 +131,13 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
-    public synchronized void retryTask(VelocityTask aTask) throws VelocityTaskException {
+    public void retryTask(VelocityTask aTask) throws VelocityTaskException {
 
         if (aTask != null) {
-            decrementRunningCounters(aTask.getTaskInfo());
+
+            synchronized (this) {
+                decrementRunningCounters(aTask.getTaskInfo());
+            }
 
             if (aTask.getTaskRetries() < 3) {
                 aTask.setStarted(false);
@@ -152,44 +157,51 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
         final Protos.TaskInfo taskInfo = aTask.getTaskInfo();
         final String taskId = taskInfo.getTaskId().getValue();
 
-        mTotalTaskCounter.incrementAndGet();
+        synchronized (this) {
+            mTotalTaskCounter.incrementAndGet();
 
-        if (mTaskInfoByTaskId.containsKey(taskId)) {
-            mRunningTasks.remove(aTask);
-            decrementRunningCounters(taskInfo);
-            mTaskInfoByTaskId.remove(taskId);
-        }
-
-    }
-
-    @Override
-    public synchronized void launchTasks(List<Protos.TaskInfo> aTasks) {
-
-        for (Protos.TaskInfo task : aTasks) {
-            final VelocityTask velocityTask = mTaskInfoByTaskId.get(task.getTaskId().getValue());
-            final double taskGpus = MesosUtils.getGpus(task, 0);
-            final Enum<? extends Priority> priority = velocityTask.getTaskDefinition().getPriority();
-
-            velocityTask.setTaskInfo(task);
-
-            if (taskGpus > 0) {
-                mAwaitingGpuTasks.get(priority).remove(velocityTask);
-
-            } else {
-                mAwaitingTasks.get(priority).remove(velocityTask);
+            if (mTaskInfoByTaskId.containsKey(taskId)) {
+                mRunningTasks.remove(aTask);
+                decrementRunningCounters(taskInfo);
+                mTaskInfoByTaskId.remove(taskId);
             }
 
-            decrementWaitingCounters(task);
-
-            mRunningTasks.add(velocityTask);
-            incrementRunningCounters(task);
-            mTaskQueue.release();
         }
 
     }
 
     @Override
-    public synchronized void updateTaskState(Protos.TaskID aTaskID, Protos.TaskState aTaskState) {
+    public void launchTasks(List<Protos.TaskInfo> aTasks) {
+
+        synchronized (this) {
+
+            for (Protos.TaskInfo task : aTasks) {
+                final VelocityTask velocityTask = mTaskInfoByTaskId.get(task.getTaskId().getValue());
+                final double taskGpus = MesosUtils.getGpus(task, 0);
+                final Enum<? extends Priority> priority = velocityTask.getTaskDefinition().getPriority();
+
+                velocityTask.setTaskInfo(task);
+
+                if (taskGpus > 0) {
+                    mAwaitingGpuTasks.get(priority).remove(velocityTask);
+
+                } else {
+                    mAwaitingTasks.get(priority).remove(velocityTask);
+                }
+
+                decrementWaitingCounters(task);
+
+                mRunningTasks.add(velocityTask);
+                incrementRunningCounters(task);
+                mTaskQueue.release();
+            }
+
+        }
+
+    }
+
+    @Override
+    public void updateTaskState(Protos.TaskID aTaskID, Protos.TaskState aTaskState) {
 
         if (mTaskInfoByTaskId.containsKey(aTaskID.getValue())) {
             final VelocityTask velocityTask = mTaskInfoByTaskId.get(aTaskID.getValue());
@@ -204,7 +216,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
-    public synchronized List<Protos.TaskInfo.Builder> getMatchingWaitingTasks(Protos.Offer aOffer) {
+    public List<Protos.TaskInfo.Builder> getMatchingWaitingTasks(Protos.Offer aOffer) {
         final OfferBucket bucket = new OfferBucket(aOffer);
 
         // If the offer contains any GPU resources, we will try and launch as many as we can first before
