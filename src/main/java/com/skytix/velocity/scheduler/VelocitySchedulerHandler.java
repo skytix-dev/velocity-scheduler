@@ -32,7 +32,7 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
     private LocalDateTime mLastHeartbeat = null;
     private int mHeartbeatInterval = 0;
 
-    public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig) {
+    public VelocitySchedulerHandler(TaskRepository<VelocityTask> aTaskRepository, MeterRegistry aMeterRegistry, VelocitySchedulerConfig aConfig, ForkJoinPool aMainThreadPool, ForkJoinPool aGeneralThreadPool) {
         mTaskRepository = aTaskRepository;
         mMeterRegistry = aMeterRegistry;
         mSchedulerConfig = aConfig;
@@ -48,9 +48,9 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
             throw new IllegalArgumentException("maxUpdateQueueSize must be create than zero");
         }
 
-        mOfferPublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), maxOfferQueueSize);
-        mUpdatePublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), maxUpdateQueueSize);
-        mTaskUpdatePublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), 1000);
+        mOfferPublisher = new SubmissionPublisher<>(aMainThreadPool, maxOfferQueueSize);
+        mUpdatePublisher = new SubmissionPublisher<>(aMainThreadPool, maxUpdateQueueSize);
+        mTaskUpdatePublisher = new SubmissionPublisher<>(aGeneralThreadPool, 1000);
     }
 
     @Override
@@ -161,6 +161,7 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
     public void onDisconnect() {
         mOfferPublisher.close();
         mUpdatePublisher.close();
+        mTaskUpdatePublisher.close();
     }
 
 }

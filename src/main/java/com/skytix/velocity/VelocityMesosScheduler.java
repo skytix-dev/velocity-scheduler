@@ -37,6 +37,9 @@ public class VelocityMesosScheduler implements MesosScheduler {
     private final Object mErrorMonitor = new Object();
     private final AtomicReference<RunningState> mSchedulerRunningState = new AtomicReference<>(RunningState.STOPPED);
 
+    private final ForkJoinPool mMainThreadPool = new ForkJoinPool(5);
+    private final ForkJoinPool mTaskGeneralThreadPool = new ForkJoinPool(4);
+
     public VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig) {
         this(aSchedulerConfig, new SimpleMeterRegistry());
     }
@@ -50,10 +53,10 @@ public class VelocityMesosScheduler implements MesosScheduler {
         mMeterRegistry = aMeterRegistry;
         mTaskRepository = aTaskRepository;
 
-        mNewTaskPublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), 1000);
+        mNewTaskPublisher = new SubmissionPublisher<>(mMainThreadPool, 1000);
         mNewTaskPublisher.subscribe(new TaskSubscriber(mTaskRepository));
 
-        mReconnectTask = ForkJoinPool.commonPool().submit(() -> {
+        mReconnectTask = mTaskGeneralThreadPool.submit(() -> {
 
             try {
 
@@ -124,14 +127,16 @@ public class VelocityMesosScheduler implements MesosScheduler {
         return new VelocitySchedulerHandler(
                 mTaskRepository,
                 mMeterRegistry,
-                mSchedulerConfig
+                mSchedulerConfig,
+                mMainThreadPool,
+                mTaskGeneralThreadPool
         ) {
 
             @Override
             public void onSubscribe(Protos.Event.Subscribed aSubscribeEvent) {
                 super.onSubscribe(aSubscribeEvent);
 
-                ForkJoinPool.commonPool().submit(
+                mTaskGeneralThreadPool.submit(
 
                         () -> {
 
@@ -297,6 +302,9 @@ public class VelocityMesosScheduler implements MesosScheduler {
         mSchedulerRunningState.set(RunningState.STOPPED);
         mRunning = false;
         mReconnectTask.cancel(true);
+        mNewTaskPublisher.close();
+        mTaskGeneralThreadPool.shutdown();
+        mMainThreadPool.shutdown();
     }
 
     public void drainAndClose() throws Exception {
