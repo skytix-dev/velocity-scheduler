@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler {
     private final SubmissionPublisher<Protos.Offer> mOfferPublisher;
     private final SubmissionPublisher<Event.Update> mUpdatePublisher;
+    private final SubmissionPublisher<TaskUpdateEvent> mTaskUpdatePublisher;
 
     private final TaskRepository<VelocityTask> mTaskRepository;
     private final MeterRegistry mMeterRegistry;
@@ -49,12 +50,13 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
 
         mOfferPublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), maxOfferQueueSize);
         mUpdatePublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), maxUpdateQueueSize);
+        mTaskUpdatePublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), 1000);
     }
 
     @Override
     public void onSubscribe(Subscribed aSubscribeEvent) {
         mOfferPublisher.subscribe(new OfferSubscriber(mTaskRepository, this::getSchedulerRemote, mMeterRegistry));
-        mUpdatePublisher.subscribe(new UpdateSubscriber(mTaskRepository, this::getSchedulerRemote, mSchedulerConfig.getDefaultTaskEventHandler(), mMeterRegistry));
+        mUpdatePublisher.subscribe(new UpdateSubscriber(mTaskRepository, mTaskUpdatePublisher, this::getSchedulerRemote, mSchedulerConfig.getDefaultTaskEventHandler(), mMeterRegistry));
 
         // Get Mesos to send status updates for tasks that were previously running.
         getSchedulerRemote().reconcile(buildFromRunningTasks());

@@ -2,6 +2,7 @@ package com.skytix.velocity.repository;
 
 import com.skytix.velocity.VelocityTaskException;
 import com.skytix.velocity.entities.Task;
+import com.skytix.velocity.entities.VelocityTask;
 import org.apache.mesos.v1.Protos;
 
 import java.io.Closeable;
@@ -13,7 +14,7 @@ public interface TaskRepository<T extends Task> extends Closeable {
     public List<T> getQueuedTasks();
     public List<T> getActiveTasks();
     public T getTaskByTaskId(String aTaskId);
-    public void updateTaskState(Protos.TaskID aTaskID, Protos.TaskState aTaskStatus);
+    public void updateTaskState(VelocityTask aTaskID, Protos.TaskState aTaskStatus);
     public List<Protos.TaskInfo.Builder> getMatchingWaitingTasks(Protos.Offer aOffer);
     public void launchTasks(List<Protos.TaskInfo> aTasks);
     public void completeTask(T aTask);

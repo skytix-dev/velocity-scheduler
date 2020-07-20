@@ -5,10 +5,7 @@ import com.skytix.velocity.entities.TaskDefinition;
 import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.repository.InMemoryTaskRepository;
 import com.skytix.velocity.repository.TaskRepository;
-import com.skytix.velocity.scheduler.MesosScheduler;
-import com.skytix.velocity.scheduler.RunningState;
-import com.skytix.velocity.scheduler.VelocitySchedulerConfig;
-import com.skytix.velocity.scheduler.VelocitySchedulerHandler;
+import com.skytix.velocity.scheduler.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.SubmissionPublisher;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -29,6 +27,7 @@ import java.util.stream.Collectors;
 public class VelocityMesosScheduler implements MesosScheduler {
     private Scheduler mMesosScheduler;
     private VelocitySchedulerHandler mSchedulerHandler;
+    private final SubmissionPublisher<VelocityTask> mNewTaskPublisher;
     private boolean mRunning = true;
 
     private final TaskRepository<VelocityTask> mTaskRepository;
@@ -50,6 +49,9 @@ public class VelocityMesosScheduler implements MesosScheduler {
         mSchedulerConfig = aSchedulerConfig;
         mMeterRegistry = aMeterRegistry;
         mTaskRepository = aTaskRepository;
+
+        mNewTaskPublisher = new SubmissionPublisher<>(ForkJoinPool.commonPool(), 1000);
+        mNewTaskPublisher.subscribe(new TaskSubscriber(mTaskRepository));
 
         mReconnectTask = ForkJoinPool.commonPool().submit(() -> {
 
@@ -215,7 +217,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
     }
 
     @Override
-    public synchronized VelocityTask launch(TaskDefinition aTaskDefinition) throws VelocityTaskException {
+    public VelocityTask launch(TaskDefinition aTaskDefinition) throws VelocityTaskException {
         mMeterRegistry.counter("velocity.counter.scheduler.taskLaunch").increment();
 
         final VelocityTask task = VelocityTask.builder()
@@ -227,7 +229,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
             mMesosScheduler.getRemote().revive(Collections.emptyList());
         }
 
-        mTaskRepository.queueTask(task);
+        mNewTaskPublisher.submit(task);
 
         return task;
     }

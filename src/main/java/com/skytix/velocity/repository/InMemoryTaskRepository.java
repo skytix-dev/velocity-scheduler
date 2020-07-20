@@ -201,10 +201,10 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
-    public void updateTaskState(Protos.TaskID aTaskID, Protos.TaskState aTaskState) {
+    public void updateTaskState(VelocityTask aTaskID, Protos.TaskState aTaskState) {
 
-        if (mTaskInfoByTaskId.containsKey(aTaskID.getValue())) {
-            final VelocityTask velocityTask = mTaskInfoByTaskId.get(aTaskID.getValue());
+        if (mTaskInfoByTaskId.containsKey(aTaskID)) {
+            final VelocityTask velocityTask = mTaskInfoByTaskId.get(aTaskID);
             velocityTask.setState(aTaskState);
 
             if (aTaskState.equals(Protos.TaskState.TASK_STARTING)) {
@@ -247,11 +247,11 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
         return mTaskInfoByTaskId.getOrDefault(aTaskId, null);
     }
 
-    public synchronized int getNumQueuedTasks() {
+    public int getNumQueuedTasks() {
         return mTotalWaitingTasks.get();
     }
 
-    public synchronized int getNumActiveTasks() {
+    public int getNumActiveTasks() {
         return mRunningTasks.size();
     }
 

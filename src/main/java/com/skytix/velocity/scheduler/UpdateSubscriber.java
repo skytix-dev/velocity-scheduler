@@ -12,21 +12,26 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.concurrent.Flow;
+import java.util.concurrent.SubmissionPublisher;
 
 @Slf4j
 public class UpdateSubscriber implements Flow.Subscriber<Update> {
     private final TaskRepository<VelocityTask> mTaskRepository;
+    private final SubmissionPublisher<TaskUpdateEvent> mEventUpdatePublisher;
     private final SchedulerRemoteProvider mRemote;
     private final TaskEventHandler mDefaultUpdateHandler;
     private final MeterRegistry mMeterRegistry;
 
     private Flow.Subscription mSubscription;
 
-    public UpdateSubscriber(TaskRepository<VelocityTask> aTaskRepository, SchedulerRemoteProvider aRemote, TaskEventHandler aDefaultUpdateHandler, MeterRegistry aMeterRegistry) {
+    public UpdateSubscriber(TaskRepository<VelocityTask> aTaskRepository, SubmissionPublisher<TaskUpdateEvent> aSubmissionPublisher, SchedulerRemoteProvider aRemote, TaskEventHandler aDefaultUpdateHandler, MeterRegistry aMeterRegistry) {
         mTaskRepository = aTaskRepository;
+        mEventUpdatePublisher = aSubmissionPublisher;
         mRemote = aRemote;
         mDefaultUpdateHandler = aDefaultUpdateHandler;
         mMeterRegistry = aMeterRegistry;
+
+        mEventUpdatePublisher.subscribe(new TaskEventUpdateSubscriber(aDefaultUpdateHandler));
     }
 
     @Override
@@ -43,7 +48,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
             final VelocityTask task = mTaskRepository.getTaskByTaskId(updateStatus.getTaskId().getValue());
 
             if (task != null) {
-                mTaskRepository.updateTaskState(updateStatus.getTaskId(), updateStatus.getState());
+                mTaskRepository.updateTaskState(task, updateStatus.getState());
                 // Send acknowledgement first to prevent handlers from delaying the potential release of resources.
                 acknowledge(updateStatus);
 
@@ -117,6 +122,13 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                 // In the event that a scheduler needs to reconnect, it may get take UPDATE messages from tasks it
                 // no longer knows about so the default update handler will be invoked if it's defined.
                 final TaskEventHandler taskEventHandler = task.getTaskDefinition().getTaskEventHandler();
+
+                mEventUpdatePublisher.submit(
+                        TaskUpdateEvent.builder()
+                                .event(update)
+                                .task(task)
+                                .build()
+                );
 
                 if (taskEventHandler != null) {
                     taskEventHandler.onEvent(update);
