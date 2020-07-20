@@ -67,6 +67,15 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
 
         switch (aEvent.getType()) {
 
+            case INVERSE_OFFERS:
+                // We currently don't support inverse offers just yet.  Tasks will one day be able to declare if they can be killed and moved.
+                final Event.InverseOffers inverseOffers = aEvent.getInverseOffers();
+
+                for (int i = 0; i < inverseOffers.getInverseOffersCount(); i++) {
+                    final Protos.InverseOffer inverseOffer = inverseOffers.getInverseOffers(i);
+                    getSchedulerRemote().decline(Collections.singletonList(inverseOffer.getId()));
+                }
+
             case OFFERS:
                 final Offers offers = aEvent.getOffers();
 
