@@ -26,6 +26,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
     private final MeterRegistry mMeterRegistry;
     private final Counter mCompletedTasksCounter;
     private final Timer mTaskDurationTimer;
+    private final Timer mTaskTotalDurationTimer;
     private final Counter mRetriedTasksCounter;
     private final Counter mFailedTasksCounter;
 
@@ -40,6 +41,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
         mMeterRegistry = aMeterRegistry;
         mCompletedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.completedTasks");
         mTaskDurationTimer = mMeterRegistry.timer("velocity.timer.scheduler.taskDuration");
+        mTaskTotalDurationTimer = mMeterRegistry.timer("velocity.timer.scheduler.taskTotalDuration");
         mRetriedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.retriedTasks");
         mFailedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.failedTasks");
 
@@ -65,6 +67,8 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                 acknowledge(updateStatus);
 
                 // Do some stuff with the task.
+                final int numQueuedTasks = mTaskRepository.getNumQueuedTasks();
+
                 switch (updateStatus.getState()) {
 
                     case TASK_RUNNING:
@@ -82,16 +86,11 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                             task.setFinishTime(LocalDateTime.now());
 
                             mTaskRepository.completeTask(task);
-
                             mCompletedTasksCounter.increment();
 
-                            mTaskDurationTimer.record(Duration.between(task.getStartTime(), task.getFinishTime()));
+                            recordTaskDuration(task);
 
-                            if (mTaskRepository.getNumQueuedTasks() == 0 && mTaskRepository.getNumActiveTasks() == 0) {
-                                log.debug("Scheduler is idle. Suppressing offers");
-                                mRemote.get().suppress(Collections.emptyList());
-                            }
-
+                            suppressOffersIfIdle();
                         }
 
                         break;
@@ -103,6 +102,8 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                     case TASK_GONE:
                     case TASK_GONE_BY_OPERATOR:
                     case TASK_LOST:
+                        task.setFinishTime(LocalDateTime.now());
+                        recordTaskDuration(task);
 
                         switch (updateStatus.getReason()) {
                             case REASON_CONTAINER_LAUNCH_FAILED:
@@ -114,7 +115,12 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                                 try {
                                     log.debug(String.format("Task %s failed for reason: %s. Retrying...", updateStatus.getTaskId(), updateStatus.getReason()));
                                     mRetriedTasksCounter.increment();
+
                                     mTaskRepository.retryTask(task);
+
+                                    if (mTaskRepository.getNumQueuedTasks() > 0) { // If we just ran 1 task, the queue will be empty so we will want to revive the offers.
+                                        mRemote.get().revive(Collections.emptyList());
+                                    }
 
                                 } catch (VelocityTaskException aE) {
                                     log.error(aE.getMessage(), aE);
@@ -125,10 +131,11 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                             default:
                                 mFailedTasksCounter.increment();
                                 log.debug(String.format("Task %s failed for reason: (%s) %s.", updateStatus.getTaskId(), updateStatus.getReason(), updateStatus.getMessage()));
-                                task.setFinishTime(LocalDateTime.now());
                                 mTaskRepository.completeTask(task);
                                 break;
                         }
+
+                        suppressOffersIfIdle();
 
                         break;
                 }
@@ -157,6 +164,27 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
             mSubscription.request(1);
         }
 
+    }
+
+    private void suppressOffersIfIdle() {
+        if (mTaskRepository.getNumQueuedTasks() == 0 && mTaskRepository.getNumActiveTasks() == 0) {
+            log.debug("Scheduler is idle. Suppressing offers");
+            mRemote.get().suppress(Collections.emptyList());
+        }
+    }
+
+    private void recordTaskDuration(VelocityTask aTask) {
+        mTaskDurationTimer.record(
+                Duration.between(
+                        aTask.getStartTime() != null ? aTask.getStartTime() : aTask.getCreated(),
+                        aTask.getFinishTime() != null ? aTask.getFinishTime() : LocalDateTime.now())
+        );
+
+        mTaskTotalDurationTimer.record(
+                Duration.between(
+                        aTask.getCreated(),
+                        LocalDateTime.now())
+        );
     }
 
     private void acknowledge(Protos.TaskStatus aStatus) {

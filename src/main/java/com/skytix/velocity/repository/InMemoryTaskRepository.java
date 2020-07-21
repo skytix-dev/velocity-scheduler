@@ -134,10 +134,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     public void retryTask(VelocityTask aTask) throws VelocityTaskException {
 
         if (aTask != null) {
-
-            synchronized (this) {
-                decrementRunningCounters(aTask.getTaskInfo());
-            }
+            completeTask(aTask);
 
             if (aTask.getTaskRetries() < 3) {
                 aTask.setStarted(false);
