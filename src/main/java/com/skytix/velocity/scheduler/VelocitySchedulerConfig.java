@@ -34,5 +34,6 @@ public class VelocitySchedulerConfig extends SchedulerConfig {
     private Integer numOfferConsumers = 5;
     private Class<? extends Enum<? extends Priority>> priorites;
     private Priority defaultPriority;
-
+    @Builder.Default
+    private boolean showTaskPriority = true;
 }

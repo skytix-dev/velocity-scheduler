@@ -1,6 +1,5 @@
 package com.skytix.velocity.scheduler;
 
-import com.skytix.velocity.VelocityTaskException;
 import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.repository.TaskRepository;
 import io.micrometer.core.instrument.Counter;
@@ -23,6 +22,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
     private final SchedulerRemoteProvider mRemote;
     private final TaskEventHandler mDefaultUpdateHandler;
     private final int mTaskRetryLimit;
+    private final SubmissionPublisher<VelocityTask> mTaskPublisher;
 
     private final MeterRegistry mMeterRegistry;
     private final Counter mCompletedTasksCounter;
@@ -34,12 +34,20 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
 
     private Flow.Subscription mSubscription;
 
-    public UpdateSubscriber(TaskRepository<VelocityTask> aTaskRepository, SubmissionPublisher<TaskUpdateEvent> aSubmissionPublisher, SchedulerRemoteProvider aRemote, TaskEventHandler aDefaultUpdateHandler, MeterRegistry aMeterRegistry, int aTaskRetryLimit) {
+    public UpdateSubscriber(
+            TaskRepository<VelocityTask> aTaskRepository,
+            SubmissionPublisher<TaskUpdateEvent> aSubmissionPublisher,
+            SubmissionPublisher<VelocityTask> aTaskPublisher,
+            SchedulerRemoteProvider aRemote,
+            TaskEventHandler aDefaultUpdateHandler,
+            MeterRegistry aMeterRegistry,
+            int aTaskRetryLimit) {
         mTaskRepository = aTaskRepository;
         mEventUpdatePublisher = aSubmissionPublisher;
         mRemote = aRemote;
         mDefaultUpdateHandler = aDefaultUpdateHandler;
         mTaskRetryLimit = aTaskRetryLimit;
+        mTaskPublisher = aTaskPublisher;
 
         mMeterRegistry = aMeterRegistry;
         mCompletedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.completedTasks");
@@ -87,11 +95,10 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
 
                         if (!task.isComplete()) {
                             task.setFinishTime(LocalDateTime.now());
-
-                            mTaskRepository.completeTask(task);
+                            recordTaskDuration(task);
                             mCompletedTasksCounter.increment();
 
-                            recordTaskDuration(task);
+                            mTaskRepository.completeTask(task);
 
                             suppressOffersIfIdle();
                         }
@@ -115,23 +122,18 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                             case REASON_GC_ERROR:
                             case REASON_INVALID_OFFERS:
                                 // Retry the task since it may be ephemeral.
-                                try {
 
-                                    if (task.getTaskRetries() < mTaskRetryLimit) {
-                                        log.debug(String.format("Task %s failed for reason: %s. Retrying...", updateStatus.getTaskId(), updateStatus.getReason()));
-                                        mRetriedTasksCounter.increment();
+                                if (task.getTaskRetries() < mTaskRetryLimit) {
+                                    log.debug(String.format("Task %s failed for reason: %s. Retrying...", updateStatus.getTaskId(), updateStatus.getReason()));
+                                    mRetriedTasksCounter.increment();
+                                    mTaskRepository.completeTask(task);
+                                    mTaskPublisher.submit(task);
 
-                                        mTaskRepository.retryTask(task);
-
-                                        if (mTaskRepository.getNumQueuedTasks() > 0) { // If we just ran 1 task, the queue will be empty so we will want to revive the offers.
-                                            mRemote.get().revive(Collections.emptyList());
-                                        }
-
-                                        return;
+                                    if (mTaskRepository.getNumQueuedTasks() > 0) { // If we just ran 1 task, the queue will be empty so we will want to revive the offers.
+                                        mRemote.get().revive(Collections.emptyList());
                                     }
 
-                                } catch (VelocityTaskException aE) {
-                                    log.error(aE.getMessage(), aE);
+                                    return;
                                 }
 
                                 break;

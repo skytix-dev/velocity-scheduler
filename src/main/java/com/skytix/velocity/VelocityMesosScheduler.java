@@ -3,6 +3,7 @@ package com.skytix.velocity;
 import com.skytix.schedulerclient.Scheduler;
 import com.skytix.velocity.entities.TaskDefinition;
 import com.skytix.velocity.entities.VelocityTask;
+import com.skytix.velocity.mesos.MesosUtils;
 import com.skytix.velocity.repository.InMemoryTaskRepository;
 import com.skytix.velocity.repository.TaskRepository;
 import com.skytix.velocity.scheduler.*;
@@ -18,10 +19,8 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.SubmissionPublisher;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -40,7 +39,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
     private final AtomicReference<RunningState> mSchedulerRunningState = new AtomicReference<>(RunningState.STOPPED);
 
     private final ExecutorService mMainThreadPool = Executors.newFixedThreadPool(6);
-    private final ExecutorService mTaskGeneralThreadPool = Executors.newFixedThreadPool(5);
+    private final ScheduledExecutorService mTaskGeneralThreadPool = Executors.newScheduledThreadPool(5);
 
     private final Counter mTaskLaunchCounter;
 
@@ -135,46 +134,52 @@ public class VelocityMesosScheduler implements MesosScheduler {
                 mMeterRegistry,
                 mSchedulerConfig,
                 mMainThreadPool,
-                mTaskGeneralThreadPool
+                mTaskGeneralThreadPool,
+                mNewTaskPublisher
         ) {
 
             @Override
             public void onSubscribe(Protos.Event.Subscribed aSubscribeEvent) {
                 super.onSubscribe(aSubscribeEvent);
 
-                mTaskGeneralThreadPool.submit(
+                final AtomicInteger failures = new AtomicInteger(0);
 
+                mTaskGeneralThreadPool.scheduleAtFixedRate(
                         () -> {
 
-                            try {
-                                int failures = 0;
+                            if (mSchedulerRunningState.get().equals(RunningState.RUNNING)) {
+                                final Duration duration = Duration.between(this.getLastHeartbeat() != null ? this.getLastHeartbeat() : LocalDateTime.now(), LocalDateTime.now());
+                                final int heartbeatInterval = this.getHeartbeatInterval();
 
-                                while (mSchedulerRunningState.get().equals(RunningState.RUNNING)) {
-                                    final Duration duration = Duration.between(this.getLastHeartbeat() != null ? this.getLastHeartbeat() : LocalDateTime.now(), LocalDateTime.now());
-                                    final int heartbeatInterval = this.getHeartbeatInterval();
+                                if (duration.getSeconds() > heartbeatInterval + mSchedulerConfig.getHeartbeatDelaySeconds()) {
+                                    failures.incrementAndGet();
 
-                                    if (duration.getSeconds() > heartbeatInterval + mSchedulerConfig.getHeartbeatDelaySeconds()) {
-                                        failures++;
-
-                                    } else {
-                                        failures = 0;
-                                    }
-
-                                    if (failures > 1) {
-                                        log.error("Missed 2 heartbeat intervals.  Triggering reconnection to masters");
-                                        this.onHeartbeatFail();
-                                        return;
-                                    }
-
-                                    Thread.sleep(heartbeatInterval * 1000);
+                                } else {
+                                    failures.set(0);
                                 }
 
-                            } catch (InterruptedException aE) {
-                                // Do nothing.  Just exit.
+                                if (failures.get() > 1) {
+                                    log.error("Missed 2 heartbeat intervals.  Triggering reconnection to masters");
+                                    this.onHeartbeatFail();
+                                    return;
+                                }
+
                             }
 
-                        }
+                        },
+                        0,
+                        getHeartbeatInterval(),
+                        TimeUnit.SECONDS
+                );
 
+                // Once every 15 minutes is recommended
+                mTaskGeneralThreadPool.scheduleAtFixedRate(
+                        () -> {
+                            mMesosScheduler.getRemote().reconcile(MesosUtils.buildReconcileTasks(mTaskRepository.getActiveTasks()));
+                        },
+                        0,
+                        15,
+                        TimeUnit.MINUTES
                 );
 
             }
@@ -322,15 +327,27 @@ public class VelocityMesosScheduler implements MesosScheduler {
     private void waitTillEmpty() throws InterruptedException {
         int numActiveTasks = getNumActiveTasks();
         int numQueuedTasks = getNumQueuedTasks();
+        int i = 0;
 
         while (numActiveTasks > 0 || numQueuedTasks > 0) {
             log.info(String.format("Waiting on task completion.  #Queued: %d, #Active: %d.", numQueuedTasks, numActiveTasks));
+            i++;
+
+            if (i % 20 == 0) {
+                log.info(String.format("Performing reconciliation on %d remaining tasks", numActiveTasks));
+                mMesosScheduler.getRemote().reconcile(MesosUtils.buildReconcileTasks(mTaskRepository.getActiveTasks())); // If we missed their event message, this will cause it to be resent.
+                i = 1;
+
+            } else {
+                i++;
+            }
 
             Thread.sleep(2000);
 
             numActiveTasks = getNumActiveTasks();
             numQueuedTasks = getNumQueuedTasks();
         }
+
     }
 
     @Override

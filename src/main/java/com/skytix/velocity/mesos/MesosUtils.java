@@ -1,8 +1,11 @@
 package com.skytix.velocity.mesos;
 
 import com.skytix.schedulerclient.mesos.MesosConstants;
+import com.skytix.velocity.entities.VelocityTask;
 import org.apache.mesos.v1.Protos;
+import org.apache.mesos.v1.scheduler.Protos.Call.Reconcile.Task;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -109,6 +112,22 @@ public class MesosUtils {
         } else {
             return aDefaultValue;
         }
+    }
+
+    public static List<Task> buildReconcileTasks(List<VelocityTask> aActiveTasks) {
+        final List<Task> results = new ArrayList<>(aActiveTasks.size());
+
+        aActiveTasks.forEach((aVelocityTask -> {
+            results.add(
+                    Task.newBuilder()
+                            .setTaskId(aVelocityTask.getTaskInfo().getTaskId())
+                            .setAgentId(aVelocityTask.getTaskInfo().getAgentId())
+                            .build()
+            );
+
+        }));
+
+        return results;
     }
 
 }
