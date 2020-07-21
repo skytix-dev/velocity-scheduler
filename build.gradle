@@ -3,7 +3,7 @@ plugins {
 }
 
 group 'au.com.skytix'
-version '1.0.21'
+version '1.0.22'
 
 apply plugin: 'java'
 apply plugin: 'maven-publish'

@@ -27,6 +27,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
     private final Counter mCompletedTasksCounter;
     private final Timer mTaskDurationTimer;
     private final Timer mTaskTotalDurationTimer;
+    private final Timer mTaskQueuedDurationTimer;
     private final Counter mRetriedTasksCounter;
     private final Counter mFailedTasksCounter;
 
@@ -42,6 +43,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
         mCompletedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.completedTasks");
         mTaskDurationTimer = mMeterRegistry.timer("velocity.timer.scheduler.taskDuration");
         mTaskTotalDurationTimer = mMeterRegistry.timer("velocity.timer.scheduler.taskTotalDuration");
+        mTaskQueuedDurationTimer = mMeterRegistry.timer("velocity.timer.scheduler.taskQueuedDuration");
         mRetriedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.retriedTasks");
         mFailedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.failedTasks");
 
@@ -66,9 +68,6 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                 // Send acknowledgement first to prevent handlers from delaying the potential release of resources.
                 acknowledge(updateStatus);
 
-                // Do some stuff with the task.
-                final int numQueuedTasks = mTaskRepository.getNumQueuedTasks();
-
                 switch (updateStatus.getState()) {
 
                     case TASK_RUNNING:
@@ -76,6 +75,8 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                         if (!task.isRunning()) {
                             task.setRunning(true);
                             task.setStartTime(LocalDateTime.now());
+
+                            mTaskQueuedDurationTimer.record(Duration.between(task.getCreated(), LocalDateTime.now()));
                         }
 
                         break;
