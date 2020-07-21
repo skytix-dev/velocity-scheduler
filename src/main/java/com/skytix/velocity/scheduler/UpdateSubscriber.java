@@ -22,6 +22,7 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
     private final SubmissionPublisher<TaskUpdateEvent> mEventUpdatePublisher;
     private final SchedulerRemoteProvider mRemote;
     private final TaskEventHandler mDefaultUpdateHandler;
+    private final int mTaskRetryLimit;
 
     private final MeterRegistry mMeterRegistry;
     private final Counter mCompletedTasksCounter;
@@ -33,11 +34,12 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
 
     private Flow.Subscription mSubscription;
 
-    public UpdateSubscriber(TaskRepository<VelocityTask> aTaskRepository, SubmissionPublisher<TaskUpdateEvent> aSubmissionPublisher, SchedulerRemoteProvider aRemote, TaskEventHandler aDefaultUpdateHandler, MeterRegistry aMeterRegistry) {
+    public UpdateSubscriber(TaskRepository<VelocityTask> aTaskRepository, SubmissionPublisher<TaskUpdateEvent> aSubmissionPublisher, SchedulerRemoteProvider aRemote, TaskEventHandler aDefaultUpdateHandler, MeterRegistry aMeterRegistry, int aTaskRetryLimit) {
         mTaskRepository = aTaskRepository;
         mEventUpdatePublisher = aSubmissionPublisher;
         mRemote = aRemote;
         mDefaultUpdateHandler = aDefaultUpdateHandler;
+        mTaskRetryLimit = aTaskRetryLimit;
 
         mMeterRegistry = aMeterRegistry;
         mCompletedTasksCounter = mMeterRegistry.counter("velocity.counter.scheduler.completedTasks");
@@ -114,13 +116,18 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                             case REASON_INVALID_OFFERS:
                                 // Retry the task since it may be ephemeral.
                                 try {
-                                    log.debug(String.format("Task %s failed for reason: %s. Retrying...", updateStatus.getTaskId(), updateStatus.getReason()));
-                                    mRetriedTasksCounter.increment();
 
-                                    mTaskRepository.retryTask(task);
+                                    if (task.getTaskRetries() < mTaskRetryLimit) {
+                                        log.debug(String.format("Task %s failed for reason: %s. Retrying...", updateStatus.getTaskId(), updateStatus.getReason()));
+                                        mRetriedTasksCounter.increment();
 
-                                    if (mTaskRepository.getNumQueuedTasks() > 0) { // If we just ran 1 task, the queue will be empty so we will want to revive the offers.
-                                        mRemote.get().revive(Collections.emptyList());
+                                        mTaskRepository.retryTask(task);
+
+                                        if (mTaskRepository.getNumQueuedTasks() > 0) { // If we just ran 1 task, the queue will be empty so we will want to revive the offers.
+                                            mRemote.get().revive(Collections.emptyList());
+                                        }
+
+                                        return;
                                     }
 
                                 } catch (VelocityTaskException aE) {
@@ -128,25 +135,15 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
                                 }
 
                                 break;
-
-                            default:
-                                mFailedTasksCounter.increment();
-                                log.debug(String.format("Task %s failed for reason: (%s) %s.", updateStatus.getTaskId(), updateStatus.getReason(), updateStatus.getMessage()));
-                                mTaskRepository.completeTask(task);
-                                break;
                         }
 
+                        failTask(updateStatus, task);
                         suppressOffersIfIdle();
 
                         break;
                 }
 
-                mEventUpdatePublisher.submit(
-                        TaskUpdateEvent.builder()
-                                .event(update)
-                                .task(task)
-                                .build()
-                );
+                notifyUpdateHandler(update, task);
 
             } else {
                 // We don't know about the task anymore so acknowledge the updates.
@@ -165,6 +162,21 @@ public class UpdateSubscriber implements Flow.Subscriber<Update> {
             mSubscription.request(1);
         }
 
+    }
+
+    private void failTask(Protos.TaskStatus aUpdateStatus, VelocityTask aTask) {
+        mFailedTasksCounter.increment();
+        log.debug(String.format("Task %s failed for reason: (%s) %s.", aUpdateStatus.getTaskId(), aUpdateStatus.getReason(), aUpdateStatus.getMessage()));
+        mTaskRepository.completeTask(aTask);
+    }
+
+    private void notifyUpdateHandler(Update update, VelocityTask aTask) {
+        mEventUpdatePublisher.submit(
+                TaskUpdateEvent.builder()
+                        .event(update)
+                        .task(aTask)
+                        .build()
+        );
     }
 
     private void suppressOffersIfIdle() {

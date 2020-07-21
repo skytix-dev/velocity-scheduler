@@ -19,6 +19,8 @@ public class VelocitySchedulerConfig extends SchedulerConfig {
     @Builder.Default
     private boolean restrictedGpuScheduling = true;
     @Builder.Default
+    private int taskRetryLimit = 3;
+    @Builder.Default
     private int taskQueueFullWaitTimeout = 2;
     @Builder.Default
     private TimeUnit taskQueueFullWaitTimeoutUnit = TimeUnit.SECONDS;

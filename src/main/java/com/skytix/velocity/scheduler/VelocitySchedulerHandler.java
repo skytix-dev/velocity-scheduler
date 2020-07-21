@@ -57,7 +57,17 @@ public abstract class VelocitySchedulerHandler extends BaseSchedulerEventHandler
     @Override
     public void onSubscribe(Subscribed aSubscribeEvent) {
         mOfferPublisher.subscribe(new OfferSubscriber(mTaskRepository, this::getSchedulerRemote, mMeterRegistry));
-        mUpdatePublisher.subscribe(new UpdateSubscriber(mTaskRepository, mTaskUpdatePublisher, this::getSchedulerRemote, mSchedulerConfig.getDefaultTaskEventHandler(), mMeterRegistry));
+
+        mUpdatePublisher.subscribe(
+                new UpdateSubscriber(
+                        mTaskRepository,
+                        mTaskUpdatePublisher,
+                        this::getSchedulerRemote,
+                        mSchedulerConfig.getDefaultTaskEventHandler(),
+                        mMeterRegistry,
+                        mSchedulerConfig.getTaskRetryLimit()
+                )
+        );
 
         // Get Mesos to send status updates for tasks that were previously running.
         getSchedulerRemote().reconcile(buildFromRunningTasks());
