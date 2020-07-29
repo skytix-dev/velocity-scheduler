@@ -3,6 +3,7 @@ import com.skytix.velocity.entities.TaskDefinition;
 import com.skytix.velocity.mesos.Tasks;
 import com.skytix.velocity.scheduler.DefaultPriority;
 import com.skytix.velocity.scheduler.VelocitySchedulerConfig;
+import org.apache.mesos.v1.Protos;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -27,8 +28,10 @@ public class TestApp {
                 for (int i = 0; i < 100; i++) {
                     final AtomicInteger atomicInteger = new AtomicInteger(idx);
 
+                    final Protos.TaskInfo.Builder docker = Tasks.docker("My special test", "ubuntu", 0.1, 0, 0.01, 0, true, "ls -la");
+
                     final TaskDefinition taskDef = TaskDefinition.from(
-                            Tasks.docker("My special test", "ubuntu", 0.1, 0, 0.01, 0, true, "ls -la"),
+                            docker,
                             DefaultPriority.STANDARD,
                             (event) -> {
 

@@ -5,6 +5,7 @@ import com.skytix.velocity.scheduler.Priority;
 import com.skytix.velocity.scheduler.TaskEventHandler;
 import lombok.Builder;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.mesos.v1.Protos;
 
 import java.util.Arrays;
@@ -34,12 +35,16 @@ public class TaskDefinition {
                 .build();
     }
 
+    public String getTaskId() {
+        return hasTaskId() ? getTaskInfo().getTaskId().getValue() : null;
+    }
+
     public boolean hasConditions() {
         return getConditions() != null && !getConditions().isEmpty();
     }
 
     public boolean hasTaskId() {
-        return getTaskInfo() != null && getTaskInfo().getTaskId() != null;
+        return getTaskInfo() != null && StringUtils.isNotBlank(getTaskInfo().getTaskId().getValue());
     }
 
 }

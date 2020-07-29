@@ -234,6 +234,8 @@ public class VelocityMesosScheduler implements MesosScheduler {
 
     @Override
     public VelocityTask launch(TaskDefinition aTaskDefinition) throws VelocityTaskException {
+        validateTaskDefinition(aTaskDefinition);
+
         mTaskLaunchCounter.increment();
 
         final VelocityTask task = VelocityTask.builder()
@@ -274,7 +276,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
         final List<VelocityTask> queuedTasks = mTaskRepository.getQueuedTasks();
 
         if (!queuedTasks.isEmpty()) {
-            return queuedTasks.stream().collect(Collectors.toMap(task -> task.getTaskInfo().getTaskId().getValue(), task -> task));
+            return queuedTasks.stream().collect(Collectors.toMap(task -> task.getTaskDefinition().getTaskId(), task -> task));
 
         } else {
             return Collections.emptyMap();
@@ -307,6 +309,15 @@ public class VelocityMesosScheduler implements MesosScheduler {
 
         stop();
         mMesosScheduler.getRemote().teardown();
+    }
+
+    private void validateTaskDefinition(TaskDefinition aTaskDefinition) throws TaskValidationException {
+
+        if (!aTaskDefinition.hasTaskId()) {
+            throw new TaskValidationException("Task definition must have a Task ID");
+        }
+
+        // Will have more other validations to perform in due course as they are discovered.
     }
 
     private void stop() {

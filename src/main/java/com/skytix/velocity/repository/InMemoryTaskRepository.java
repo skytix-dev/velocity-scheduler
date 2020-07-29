@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.mesos.v1.Protos;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Semaphore;
@@ -373,7 +375,9 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
         mTaskPriorities.forEach((priority) -> {
             aMeterRegistry.gauge(String.format("velocity.gauge.scheduler.numWaitingTasks_%s", priority.name()), mAwaitingTasks.get(priority), Set::size);
+            aMeterRegistry.gauge(String.format("velocity.gauge.scheduler.maxCurrentWaitingTaskDuration_%s", priority.name()), mAwaitingTasks.get(priority), this::getLongestWaitingTask);
             aMeterRegistry.gauge(String.format("velocity.gauge.scheduler.numWaitingGpuTasks_%s", priority.name()), mAwaitingGpuTasks.get(priority), Set::size);
+            aMeterRegistry.gauge(String.format("velocity.gauge.scheduler.maxCurrentWaitingGpuTaskDuration_%s", priority.name()), mAwaitingGpuTasks.get(priority), this::getLongestWaitingTask);
         });
 
         aMeterRegistry.gauge("velocity.gauge.scheduler.numTotalTasks", mTotalTaskCounter, AtomicInteger::get);
@@ -385,6 +389,26 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
         aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningMem", mRunningMem, AtomicDouble::get);
         aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningDisk", mRunningDisk, AtomicDouble::get);
         aMeterRegistry.gauge("velocity.gauge.scheduler.numRunningGpu", mRunningGpu, AtomicDouble::get);
+    }
+
+    private double getLongestWaitingTask(Set<VelocityTask> aTasks) {
+        VelocityTask oldestTask = null;
+
+        for (VelocityTask task : aTasks) {
+
+            if (oldestTask != null) {
+
+                if (task.getCreated().isBefore(oldestTask.getCreated())) {
+                    oldestTask = task;
+                }
+
+            } else {
+                oldestTask = task;
+            }
+
+        }
+
+        return oldestTask != null ? Duration.between(oldestTask.getCreated(), LocalDateTime.now()).getNano() : 0;
     }
 
 }
