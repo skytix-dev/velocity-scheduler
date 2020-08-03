@@ -34,7 +34,6 @@ public class VelocityMesosScheduler implements MesosScheduler {
     private final TaskRepository<VelocityTask> mTaskRepository;
     private final MeterRegistry mMeterRegistry;
     private final VelocitySchedulerConfig mSchedulerConfig;
-    private final Future<?> mReconnectTask;
     private final Object mErrorMonitor = new Object();
     private final AtomicReference<RunningState> mSchedulerRunningState = new AtomicReference<>(RunningState.STOPPED);
 
@@ -42,6 +41,10 @@ public class VelocityMesosScheduler implements MesosScheduler {
     private final ScheduledExecutorService mTaskGeneralThreadPool = Executors.newScheduledThreadPool(5);
 
     private final Counter mTaskLaunchCounter;
+
+    private ScheduledFuture<?> mHeartbeatTask;
+    private ScheduledFuture<?> mReconcileTask;
+    private final Future<?> mReconnectTask;
 
     public VelocityMesosScheduler(VelocitySchedulerConfig aSchedulerConfig) {
         this(aSchedulerConfig, new SimpleMeterRegistry());
@@ -85,6 +88,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
         mTaskLaunchCounter = mMeterRegistry.counter("velocity.counter.scheduler.taskLaunch");
 
         handleReconnect();
+
     }
 
     private synchronized void handleReconnect() {
@@ -144,7 +148,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
 
                 final AtomicInteger failures = new AtomicInteger(0);
 
-                mTaskGeneralThreadPool.scheduleAtFixedRate(
+                mHeartbeatTask = mTaskGeneralThreadPool.scheduleAtFixedRate(
                         () -> {
 
                             if (mSchedulerRunningState.get().equals(RunningState.RUNNING)) {
@@ -173,7 +177,7 @@ public class VelocityMesosScheduler implements MesosScheduler {
                 );
 
                 // Once every 15 minutes is recommended
-                mTaskGeneralThreadPool.scheduleAtFixedRate(
+                mReconcileTask = mTaskGeneralThreadPool.scheduleAtFixedRate(
                         () -> {
                             mMesosScheduler.getRemote().reconcile(MesosUtils.buildReconcileTasks(mTaskRepository.getActiveTasks()));
                         },
@@ -198,6 +202,10 @@ public class VelocityMesosScheduler implements MesosScheduler {
             @Override
             public void onDisconnect() {
                 super.onDisconnect();
+
+                mReconcileTask.cancel(true);
+                mHeartbeatTask.cancel(true);
+
                 log.error("Scheduler disconnected from the master. Reconnecting");
 
                 if (mSchedulerRunningState.get().equals(RunningState.RUNNING)) {

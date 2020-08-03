@@ -13,8 +13,8 @@ public class TestApp {
 
         try {
             final VelocitySchedulerConfig config = VelocitySchedulerConfig.builder()
-                    .frameworkID("marc-test-scheduler-0")
-                    .mesosMasterURL("https://mesos.dev.redeye.co")
+                    .frameworkID("marc-test-scheduler-1")
+                    .mesosMasterURL("http://10.9.10.1:5050")
                     .priorites(DefaultPriority.class)
                     .disableSSLTrust(true)
                     .enableGPUResources(true)
@@ -24,31 +24,30 @@ public class TestApp {
             final VelocityMesosScheduler scheduler = new VelocityMesosScheduler(config);
             int idx = 0;
 
+            for (int i = 0; i < 100; i++) {
+                final AtomicInteger atomicInteger = new AtomicInteger(idx);
 
-                for (int i = 0; i < 100; i++) {
-                    final AtomicInteger atomicInteger = new AtomicInteger(idx);
+                final Protos.TaskInfo.Builder docker = Tasks.docker("My special test", "ubuntu", 0.1, 0, 1000, 0, true, "ls -la; sleep 10");
 
-                    final Protos.TaskInfo.Builder docker = Tasks.docker("My special test", "ubuntu", 0.1, 0, 0.01, 0, true, "ls -la");
+                final TaskDefinition taskDef = TaskDefinition.from(
+                        docker,
+                        DefaultPriority.STANDARD,
+                        (event) -> {
 
-                    final TaskDefinition taskDef = TaskDefinition.from(
-                            docker,
-                            DefaultPriority.STANDARD,
-                            (event) -> {
-
-                                switch (event.getStatus().getState()) {
-                                    case TASK_FINISHED:
-                                        System.out.println(String.format("Job number %d finished", atomicInteger.get()));
-                                }
-
+                            switch (event.getStatus().getState()) {
+                                case TASK_FINISHED:
+                                    System.out.println(String.format("Job number %d finished", atomicInteger.get()));
                             }
-                    );
 
-                    scheduler.launch(taskDef);
-                    System.out.println("Queued job " + idx);
-                    idx++;
-                }
+                        }
+                );
 
-                scheduler.drainAndClose();
+                scheduler.launch(taskDef);
+                System.out.println("Queued job " + idx);
+                idx++;
+            }
+
+            scheduler.drainAndClose();
 
         } catch (Exception aE) {
             aE.printStackTrace();
