@@ -82,12 +82,33 @@ public class MesosUtils {
         return createNamedScalarResource(MesosConstants.SCALAR_DISK, aDisk);
     }
 
+    public static Protos.Resource getPorts(Protos.TaskInfoOrBuilder aTaskInfo) {
+        return getNamedResource(MesosConstants.RANGE_PORTS, aTaskInfo);
+    }
+
+    public static Protos.Resource getPorts(Protos.OfferOrBuilder aOffer) {
+        return getNamedResource(MesosConstants.RANGE_PORTS, aOffer);
+    }
+
+    public static Protos.Resource createPortsResource(Protos.Value.Ranges aRanges) {
+        return createNamedRangesResource(MesosConstants.RANGE_PORTS, aRanges);
+    }
+
     public static Protos.Resource createNamedScalarResource(String aName, double aValue) {
 
         return Protos.Resource.newBuilder()
                 .setName(aName)
                 .setType(Protos.Value.Type.SCALAR)
                 .setScalar(Protos.Value.Scalar.newBuilder().setValue(aValue))
+                .build();
+    }
+
+    public static Protos.Resource createNamedRangesResource(String aName, Protos.Value.Ranges aRanges) {
+
+        return Protos.Resource.newBuilder()
+                .setName(aName)
+                .setType(Protos.Value.Type.RANGES)
+                .setRanges(aRanges)
                 .build();
     }
 

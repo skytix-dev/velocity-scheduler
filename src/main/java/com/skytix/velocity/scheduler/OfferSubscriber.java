@@ -178,6 +178,47 @@ public class OfferSubscriber implements Flow.Subscriber<Protos.Offer> {
                 .setValue(aTaskInfo.getTaskId().getValue())
         );
 
+        if (aTaskInfo.getContainer().getType() == Protos.ContainerInfo.Type.DOCKER) {
+            final Protos.ContainerInfo.DockerInfo docker = aTaskInfo.getContainer().getDocker();
+
+            switch (docker.getNetwork()) {
+
+                case BRIDGE:
+
+                    for (int i = 0; i < docker.getPortMappingsCount(); i++) {
+                        final Protos.ContainerInfo.DockerInfo.PortMapping portMapping = docker.getPortMappings(i);
+
+                        environmentBuilder.addVariables(
+                                Protos.Environment.Variable.newBuilder()
+                                        .setName(String.format("PORT%d", i))
+                                        .setValue(Integer.toString(portMapping.getHostPort()))
+                                        .build()
+                        );
+
+                    }
+
+                    break;
+
+                case HOST:
+                    final Protos.Ports.Builder ports = aTaskInfo.getDiscoveryBuilder().getPortsBuilder();
+
+                    for (int i = 0; i < ports.getPortsCount(); i++) {
+                        final Protos.Port.Builder port = ports.getPortsBuilder(i);
+
+                        environmentBuilder.addVariables(
+                                Protos.Environment.Variable.newBuilder()
+                                        .setName(String.format("PORT%d", i))
+                                        .setValue(Integer.toString(port.getNumber()))
+                                        .build()
+                        );
+
+                    }
+
+                    break;
+            }
+
+        }
+
     }
 
     private void removeEnvVar(String aName, Protos.Environment.Builder aEnv) {

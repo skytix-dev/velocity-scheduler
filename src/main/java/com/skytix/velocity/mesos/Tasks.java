@@ -1,6 +1,7 @@
 package com.skytix.velocity.mesos;
 
 import org.apache.mesos.v1.Protos;
+import org.apache.mesos.v1.Protos.ContainerInfo.DockerInfo.Network;
 
 import java.util.Arrays;
 import java.util.UUID;
@@ -25,6 +26,7 @@ public final class Tasks {
                                         Protos.ContainerInfo.DockerInfo.newBuilder()
                                                 .setImage(image)
                                                 .setPrivileged(false)
+                                                .setNetwork(Network.BRIDGE)
                                 )
 
                 )
