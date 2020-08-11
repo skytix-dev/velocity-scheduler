@@ -141,12 +141,56 @@ public class OfferSubscriber implements Flow.Subscriber<Protos.Offer> {
         final Protos.Offer.Operation.Launch.Builder launch = Protos.Offer.Operation.Launch.newBuilder();
 
         for (Protos.TaskInfo.Builder taskInfo : aTasks) {
+            setStandardTaskEnvVars(aOffer, taskInfo);
             launch.addTaskInfos(taskInfo.setAgentId(aOffer.getAgentId()));
         }
 
         return Protos.Offer.Operation.newBuilder()
                 .setType(Protos.Offer.Operation.Type.LAUNCH)
                 .setLaunch(launch);
+
+    }
+
+    private void setStandardTaskEnvVars(Protos.Offer aOffer, Protos.TaskInfo.Builder aTaskInfo) {
+
+        if (!aTaskInfo.hasCommand()) {
+            aTaskInfo.setCommand(Protos.CommandInfo.newBuilder());
+        }
+
+        final Protos.CommandInfo.Builder commandBuilder = aTaskInfo.getCommandBuilder();
+
+        if (!commandBuilder.hasEnvironment()) {
+            commandBuilder.setEnvironment(Protos.Environment.newBuilder());
+        }
+
+        final Protos.Environment.Builder environmentBuilder = commandBuilder.getEnvironmentBuilder();
+
+        removeEnvVar("HOST", environmentBuilder);
+        removeEnvVar("MESOS_TASK_ID", environmentBuilder);
+
+        environmentBuilder.addVariables(Protos.Environment.Variable.newBuilder()
+                .setName("HOST")
+                .setValue(aOffer.getHostname())
+        );
+
+        environmentBuilder.addVariables(Protos.Environment.Variable.newBuilder()
+                .setName("MESOS_TASK_ID")
+                .setValue(aTaskInfo.getTaskId().getValue())
+        );
+
+    }
+
+    private void removeEnvVar(String aName, Protos.Environment.Builder aEnv) {
+
+        for (int idx = 0; idx < aEnv.getVariablesCount(); idx++) {
+            final Protos.Environment.Variable var = aEnv.getVariables(idx);
+
+            if (var.getName().equals(aName)) {
+                aEnv.removeVariables(idx);
+                return;
+            }
+
+        }
 
     }
 
