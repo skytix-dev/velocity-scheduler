@@ -54,6 +54,8 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
             mTaskPriorities = Arrays.asList(DefaultPriority.values());
         }
 
+        mTaskPriorities.sort(Comparator.comparing(Enum::ordinal));
+
         final Integer maxTaskQueueSize = aConfig.getMaxTaskQueueSize();
 
         if (maxTaskQueueSize > 0) {
@@ -175,24 +177,39 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
         synchronized (this) {
 
             for (Protos.TaskInfo task : aTasks) {
-                final VelocityTask velocityTask = mTaskInfoByTaskId.get(task.getTaskId().getValue());
-                final double taskGpus = MesosUtils.getGpus(task, 0);
-                final Enum<? extends Priority> priority = velocityTask.getTaskDefinition().getPriority();
+                final String taskId = task.getTaskId().getValue();
+                final VelocityTask velocityTask = mTaskInfoByTaskId.get(taskId);
 
-                velocityTask.setTaskInfo(task);
+                if (velocityTask != null) {
+                    final double taskGpus = MesosUtils.getGpus(task, 0);
+                    final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
 
-                if (taskGpus > 0) {
-                    mAwaitingGpuTasks.get(priority).remove(velocityTask);
+                    if (taskDefinition != null) {
+                        final Enum<? extends Priority> priority = taskDefinition.getPriority();
+
+                        velocityTask.setTaskInfo(task);
+
+                        if (taskGpus > 0) {
+                            mAwaitingGpuTasks.get(priority).remove(velocityTask);
+
+                        } else {
+                            mAwaitingTasks.get(priority).remove(velocityTask);
+                        }
+
+                        decrementWaitingCounters(task);
+
+                        mRunningTasks.add(velocityTask);
+                        incrementRunningCounters(task);
+                        mTaskQueue.release();
+
+                    } else {
+                        log.error(String.format("Unable to launch task as no priority was assigned for taskID %s", taskId));
+                    }
 
                 } else {
-                    mAwaitingTasks.get(priority).remove(velocityTask);
+                    log.error(String.format("Unable to launch task as Task state could not be found for taskID %s", taskId));
                 }
 
-                decrementWaitingCounters(task);
-
-                mRunningTasks.add(velocityTask);
-                incrementRunningCounters(task);
-                mTaskQueue.release();
             }
 
         }
@@ -220,7 +237,6 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
         // If the offer contains any GPU resources, we will try and launch as many as we can first before
         // scheduling any other tasks.
-
         if (mConfig.isEnableGPUResources()) {
 
             if (MesosUtils.getGpus(aOffer, 0) > 0) {
@@ -261,10 +277,26 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Map<Enum<? extends Priority>, Set<VelocityTask>> aAwaitingTasks) {
 
-        mTaskPriorities.stream().sorted(Comparator.comparing(Enum::ordinal)).forEach((priority) -> {
+        mTaskPriorities.forEach((priority) -> {
 
             for (VelocityTask velocityTask : aAwaitingTasks.get(priority)) {
                 final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
+
+                if (taskDefinition.isYieldToHigherPriority()) {
+                    // Check to see if there are tasks with a higher priority waiting, if so, wait.
+                    final int ordinal = priority.ordinal();
+
+                    if (ordinal > 0 ) {
+                        final Enum<? extends Priority> higherPriority = mTaskPriorities.get(ordinal - 1);
+
+                        if (aAwaitingTasks.get(higherPriority).size() > 0) {
+                            continue;
+                        }
+
+                    }
+
+                }
+
                 final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
                 final double memoryTolerance = taskDefinition.getMemoryTolerance();
 

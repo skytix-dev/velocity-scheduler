@@ -1,10 +1,12 @@
 package com.skytix.velocity.scheduler;
 
 import com.skytix.velocity.entities.VelocityTask;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.mesos.v1.scheduler.Protos;
 
 import java.util.concurrent.Flow;
 
+@Slf4j
 public class TaskEventUpdateSubscriber implements Flow.Subscriber<TaskUpdateEvent> {
     private final TaskEventHandler mDefaultUpdateHandler;
     private Flow.Subscription mSubscription;
@@ -25,6 +27,7 @@ public class TaskEventUpdateSubscriber implements Flow.Subscriber<TaskUpdateEven
         final Protos.Event.Update event = item.getEvent();
 
         try {
+
             if (task != null) {
                 final TaskEventHandler taskEventHandler = task.getTaskDefinition().getTaskEventHandler();
 
@@ -42,6 +45,9 @@ public class TaskEventUpdateSubscriber implements Flow.Subscriber<TaskUpdateEven
                 }
 
             }
+
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
 
         } finally {
             mSubscription.request(1);
