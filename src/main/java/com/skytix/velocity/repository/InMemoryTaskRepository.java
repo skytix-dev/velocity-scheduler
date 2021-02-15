@@ -184,16 +184,15 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     @Override
     public void launchTasks(List<VelocityTask> aTasks) {
 
-        synchronized (this) {
+        for (VelocityTask velocityTask : aTasks) {
+            final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
+            final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
 
-            for (VelocityTask velocityTask : aTasks) {
-                final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
-                final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
-
+            synchronized (this) {
                 decrementWaitingCounters(taskInfo);
+                incrementRunningCounters(taskInfo);
 
                 mRunningTasks.add(velocityTask);
-                incrementRunningCounters(taskInfo);
                 mTaskQueue.release();
             }
 
@@ -257,11 +256,11 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Map<Enum<? extends Priority>, Set<VelocityTask>> aAwaitingTasks) {
 
-        synchronized (this) {
+        mTaskPriorities.forEach((priority) -> {
+            final Set<VelocityTask> priorityTasks = aAwaitingTasks.get(priority);
+            final List<VelocityTask> missedTasks = new ArrayList<>();
 
-            mTaskPriorities.forEach((priority) -> {
-                final Set<VelocityTask> priorityTasks = aAwaitingTasks.get(priority);
-                final List<VelocityTask> missedTasks = new ArrayList<>();
+            synchronized (this) {
 
                 for (VelocityTask velocityTask : priorityTasks.stream().collect(Collectors.toUnmodifiableList())) {
                     final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
@@ -366,10 +365,9 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
                     priorityTasks.addAll(missedTasks);
                     mMissedTasks.get(priority).addAll(missedTasks);
                 }
+            }
 
-            });
-
-        }
+        });
 
     }
 
