@@ -1,5 +1,6 @@
 package com.skytix.velocity.scheduler;
 
+import com.skytix.velocity.entities.VelocityTask;
 import com.skytix.velocity.mesos.MesosUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.mesos.v1.Protos;
@@ -16,7 +17,7 @@ import static org.apache.mesos.v1.Protos.ContainerInfo.DockerInfo.PortMapping;
 public class OfferBucket {
     private final Protos.OfferID mOfferID;
     private final int mMaxTasksPerOffer;
-    private final List<Protos.TaskInfo.Builder> mAllocatedTasks = new ArrayList<>();
+    private final List<VelocityTask> mAllocatedTasks = new ArrayList<>();
 
     private final double mOfferCpus;
     private final double mOfferMem;
@@ -156,15 +157,17 @@ public class OfferBucket {
 
     }
 
-    public synchronized void add(Protos.TaskInfo.Builder aTaskInfo) {
-        mAllocatedCpus += MesosUtils.getCpus(aTaskInfo, 0);
-        mAllocatedMem += MesosUtils.getMem(aTaskInfo, 0);
-        mAllocatedDisk += MesosUtils.getDisk(aTaskInfo, 0);
-        mAllocatedGpus += MesosUtils.getGpus(aTaskInfo, 0);
+    public synchronized void add(VelocityTask aTask) {
+        final Protos.TaskInfo.Builder taskInfo = aTask.getTaskDefinition().getTaskInfo();
 
-        allocatePorts(aTaskInfo);
+        mAllocatedCpus += MesosUtils.getCpus(taskInfo, 0);
+        mAllocatedMem += MesosUtils.getMem(taskInfo, 0);
+        mAllocatedDisk += MesosUtils.getDisk(taskInfo, 0);
+        mAllocatedGpus += MesosUtils.getGpus(taskInfo, 0);
 
-        mAllocatedTasks.add(aTaskInfo);
+        allocatePorts(taskInfo);
+
+        mAllocatedTasks.add(aTask);
     }
 
     private void allocatePorts(Protos.TaskInfo.Builder aTaskInfo) {
@@ -328,7 +331,7 @@ public class OfferBucket {
         return mAllocatedGpus;
     }
 
-    public List<Protos.TaskInfo.Builder> getAllocatedTasks() {
+    public List<VelocityTask> getAllocatedTasks() {
         return mAllocatedTasks;
     }
 

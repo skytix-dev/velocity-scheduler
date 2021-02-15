@@ -16,9 +16,9 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
@@ -26,6 +26,7 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     private final Map<String, VelocityTask> mTaskInfoByTaskId = new HashMap<>();
     private final Semaphore mTaskQueue;
     private final Map<Enum<? extends Priority>, Set<VelocityTask>> mAwaitingTasks = new HashMap<>();
+    private final Map<Enum<? extends Priority>, Set<VelocityTask>> mMissedTasks = new HashMap<>();
     private final Map<Enum<? extends Priority>, Set<VelocityTask>> mAwaitingGpuTasks = new HashMap<>();
     private final List<VelocityTask> mRunningTasks = new ArrayList<>();
 
@@ -80,6 +81,15 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
         mAwaitingGpuTasks.forEach((key, value) -> tasks.addAll(value));
         mAwaitingTasks.forEach((key, value) -> tasks.addAll(value));
+
+        return tasks;
+    }
+
+    @Override
+    public Set<VelocityTask> getMissedTasks() {
+        final Set<VelocityTask> tasks = new TreeSet<>(Comparator.naturalOrder());
+
+        mMissedTasks.forEach((priority, set) -> tasks.addAll(set));
 
         return tasks;
     }
@@ -155,15 +165,15 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     @Override
     public void completeTask(VelocityTask aTask) {
-        final Protos.TaskInfo taskInfo = aTask.getTaskInfo();
-        final String taskId = taskInfo.getTaskId().getValue();
 
         synchronized (this) {
+            final String taskId = aTask.getTaskId();
+
             mTotalTaskCounter.incrementAndGet();
 
             if (mTaskInfoByTaskId.containsKey(taskId)) {
                 mRunningTasks.remove(aTask);
-                decrementRunningCounters(taskInfo);
+                decrementRunningCounters(aTask.getTaskDefinition().getTaskInfo());
                 mTaskInfoByTaskId.remove(taskId);
             }
 
@@ -172,44 +182,19 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
-    public void launchTasks(List<Protos.TaskInfo> aTasks) {
+    public void launchTasks(List<VelocityTask> aTasks) {
 
         synchronized (this) {
 
-            for (Protos.TaskInfo task : aTasks) {
-                final String taskId = task.getTaskId().getValue();
-                final VelocityTask velocityTask = mTaskInfoByTaskId.get(taskId);
+            for (VelocityTask velocityTask : aTasks) {
+                final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
+                final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
 
-                if (velocityTask != null) {
-                    final double taskGpus = MesosUtils.getGpus(task, 0);
-                    final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
+                decrementWaitingCounters(taskInfo);
 
-                    if (taskDefinition != null) {
-                        final Enum<? extends Priority> priority = taskDefinition.getPriority();
-
-                        velocityTask.setTaskInfo(task);
-
-                        if (taskGpus > 0) {
-                            mAwaitingGpuTasks.get(priority).remove(velocityTask);
-
-                        } else {
-                            mAwaitingTasks.get(priority).remove(velocityTask);
-                        }
-
-                        decrementWaitingCounters(task);
-
-                        mRunningTasks.add(velocityTask);
-                        incrementRunningCounters(task);
-                        mTaskQueue.release();
-
-                    } else {
-                        log.error(String.format("Unable to launch task as no priority was assigned for taskID %s", taskId));
-                    }
-
-                } else {
-                    log.error(String.format("Unable to launch task as Task state could not be found for taskID %s", taskId));
-                }
-
+                mRunningTasks.add(velocityTask);
+                incrementRunningCounters(taskInfo);
+                mTaskQueue.release();
             }
 
         }
@@ -217,22 +202,17 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     @Override
-    public void updateTaskState(VelocityTask aTaskID, Protos.TaskState aTaskState) {
+    public void updateTaskState(VelocityTask aTask, Protos.TaskState aTaskState) {
+        aTask.setState(aTaskState);
 
-        if (mTaskInfoByTaskId.containsKey(aTaskID)) {
-            final VelocityTask velocityTask = mTaskInfoByTaskId.get(aTaskID);
-            velocityTask.setState(aTaskState);
-
-            if (aTaskState.equals(Protos.TaskState.TASK_STARTING)) {
-                velocityTask.setStarted(true);
-            }
-
+        if (aTaskState.equals(Protos.TaskState.TASK_STARTING)) {
+            aTask.setStarted(true);
         }
 
     }
 
     @Override
-    public List<Protos.TaskInfo.Builder> getMatchingWaitingTasks(Protos.Offer aOffer) {
+    public List<VelocityTask> getMatchingWaitingTasks(Protos.Offer aOffer) {
         final OfferBucket bucket = new OfferBucket(aOffer);
 
         // If the offer contains any GPU resources, we will try and launch as many as we can first before
@@ -277,90 +257,119 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
 
     private void populateOfferBucket(Protos.Offer aOffer, OfferBucket aOfferBucket, Map<Enum<? extends Priority>, Set<VelocityTask>> aAwaitingTasks) {
 
-        mTaskPriorities.forEach((priority) -> {
+        synchronized (this) {
 
-            for (VelocityTask velocityTask : aAwaitingTasks.get(priority)) {
-                final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
+            mTaskPriorities.forEach((priority) -> {
+                final Set<VelocityTask> priorityTasks = aAwaitingTasks.get(priority);
+                final List<VelocityTask> missedTasks = new ArrayList<>();
 
-                if (taskDefinition.isYieldToHigherPriority()) {
-                    // Check to see if there are tasks with a higher priority waiting, if so, wait.
-                    final int ordinal = priority.ordinal();
+                for (VelocityTask velocityTask : priorityTasks.stream().collect(Collectors.toUnmodifiableList())) {
+                    final TaskDefinition taskDefinition = velocityTask.getTaskDefinition();
 
-                    if (ordinal > 0 ) {
-                        final Enum<? extends Priority> higherPriority = mTaskPriorities.get(ordinal - 1);
+                    if (taskDefinition.isYieldToHigherPriority()) {
+                        // Check to see if there are tasks with a higher priority waiting, if so, wait.
+                        final int ordinal = priority.ordinal();
 
-                        if (aAwaitingTasks.get(higherPriority).size() > 0) {
-                            continue;
-                        }
+                        if (ordinal > 0 ) {
+                            final Enum<? extends Priority> higherPriority = mTaskPriorities.get(ordinal - 1);
 
-                    }
-
-                }
-
-                final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
-                final double memoryTolerance = taskDefinition.getMemoryTolerance();
-
-                try {
-                    final boolean meetsConditions;
-
-                    if (taskDefinition.hasConditions()) {
-                        boolean condition = true;
-
-                        for (OfferPredicate predicate : taskDefinition.getConditions()) {
-                            condition = condition && predicate.test(aOffer);
-                        }
-
-                        meetsConditions = condition;
-
-                    } else {
-                        meetsConditions = true;
-                    }
-
-                    if (meetsConditions) {
-
-                        if (aOfferBucket.hasResources(taskInfo)) {
-                            aOfferBucket.add(taskInfo);
-
-                        } else {
-
-                            if (aOfferBucket.hasCpuResources(taskInfo) && aOfferBucket.hasDiskResources(taskInfo) && aOfferBucket.hasGpuResources(taskInfo)) {
-                                // If we have enough of all other resources, check the memory tolerance.
-                                if (memoryTolerance > 0) {
-                                    final double memDemanded = MesosUtils.getMem(taskInfo, 0);
-                                    final double minMemoryDemanded = memDemanded - (memDemanded * (memoryTolerance / 100));
-                                    final double availableMemory = aOfferBucket.getOfferMem() - aOfferBucket.getAllocatedMem();
-
-                                    if (availableMemory >= minMemoryDemanded) {
-
-                                        log.info(String.format(
-                                                "Task '%s' demanded %fM of memory with a minimum threshold of %fM. Using remaining %fM available memory on the offer.",
-                                                taskInfo.getTaskId().getValue(),
-                                                memDemanded,
-                                                minMemoryDemanded,
-                                                availableMemory
-                                        ));
-
-                                        taskInfo.getResourcesList().remove(MesosUtils.getNamedResource(MesosConstants.SCALAR_MEM, taskInfo));
-                                        taskInfo.addResources(MesosUtils.createMemResource(availableMemory));
-
-                                        aOfferBucket.add(taskInfo);
-                                    }
-
-                                }
-
+                            if (aAwaitingTasks.get(higherPriority).size() > 0) {
+                                continue; // Note: Because we yielded, we don't mark it as a missed offer.
                             }
 
                         }
 
                     }
 
-                } catch (OfferBucketFullException aE) {
-                    break;
+                    final Protos.TaskInfo.Builder taskInfo = taskDefinition.getTaskInfo();
+                    final double memoryTolerance = taskDefinition.getMemoryTolerance();
+
+                    try {
+                        final boolean meetsConditions;
+
+                        if (taskDefinition.hasConditions()) {
+                            boolean condition = true;
+
+                            for (OfferPredicate predicate : taskDefinition.getConditions()) {
+                                condition = condition && predicate.test(aOffer);
+                            }
+
+                            meetsConditions = condition;
+
+                        } else {
+                            meetsConditions = true;
+                        }
+
+                        if (meetsConditions) {
+
+                            if (aOfferBucket.hasResources(taskInfo)) {
+                                aOfferBucket.add(velocityTask);
+
+                                priorityTasks.remove(velocityTask);
+                                mMissedTasks.get(priority).remove(velocityTask);
+
+                            } else {
+                                boolean couldAllocate = false;
+
+                                if (aOfferBucket.hasCpuResources(taskInfo) && aOfferBucket.hasDiskResources(taskInfo) && aOfferBucket.hasGpuResources(taskInfo)) {
+                                    // If we have enough of all other resources, check the memory tolerance.
+                                    if (memoryTolerance > 0) {
+                                        final double memDemanded = MesosUtils.getMem(taskInfo, 0);
+                                        final double minMemoryDemanded = memDemanded - (memDemanded * (memoryTolerance / 100));
+                                        final double availableMemory = aOfferBucket.getOfferMem() - aOfferBucket.getAllocatedMem();
+
+                                        if (availableMemory >= minMemoryDemanded) {
+
+                                            log.info(String.format(
+                                                    "Task '%s' demanded %fM of memory with a minimum threshold of %fM. Using remaining %fM available memory on the offer.",
+                                                    taskInfo.getTaskId().getValue(),
+                                                    memDemanded,
+                                                    minMemoryDemanded,
+                                                    availableMemory
+                                            ));
+
+                                            taskInfo.getResourcesList().remove(MesosUtils.getNamedResource(MesosConstants.SCALAR_MEM, taskInfo));
+                                            taskInfo.addResources(MesosUtils.createMemResource(availableMemory));
+
+                                            velocityTask.setTaskDefinition(TaskDefinition.from(velocityTask.getTaskDefinition(), taskInfo));
+
+                                            aOfferBucket.add(velocityTask);
+                                            priorityTasks.remove(velocityTask);
+                                            mMissedTasks.get(priority).remove(velocityTask);
+
+                                            couldAllocate = true;
+                                        }
+
+                                    }
+
+                                }
+
+                                if (!couldAllocate) {
+                                    missedTasks.add(velocityTask);
+                                    velocityTask.incrementMissedOffers();
+                                }
+
+                            }
+
+                        } else {
+                            // An offer is only missed if it meets the criteria of the offer but there isn't enough resources in it.
+                        }
+
+                    } catch (OfferBucketFullException aE) {
+                        break;
+                    }
+
                 }
 
-            }
+                if (missedTasks.size() > 0) {
+                    priorityTasks.removeAll(missedTasks);
+                    priorityTasks.addAll(missedTasks);
+                    mMissedTasks.get(priority).addAll(missedTasks);
+                }
 
-        });
+            });
+
+        }
 
     }
 
@@ -397,8 +406,9 @@ public class InMemoryTaskRepository implements TaskRepository<VelocityTask> {
     }
 
     private void configurePriorityQueues() {
-        mTaskPriorities.forEach((priority) -> mAwaitingTasks.put(priority, new ConcurrentSkipListSet<>()));
-        mTaskPriorities.forEach((priority) -> mAwaitingGpuTasks.put(priority, new ConcurrentSkipListSet<>()));
+        mTaskPriorities.forEach((priority) -> mAwaitingTasks.put(priority, new TreeSet<>(Comparator.naturalOrder())));
+        mTaskPriorities.forEach((priority) -> mAwaitingGpuTasks.put(priority, new TreeSet<>(Comparator.naturalOrder())));
+        mTaskPriorities.forEach((priority) -> mMissedTasks.put(priority, new TreeSet<>(Comparator.naturalOrder())));
     }
 
     private void configureMetrics(MeterRegistry aMeterRegistry) {

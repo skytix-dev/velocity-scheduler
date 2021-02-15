@@ -42,6 +42,10 @@ public class MesosUtils {
         return getNamedResourceScalar(MesosConstants.SCALAR_CPU, aTaskInfo, aDefaultValue);
     }
 
+    public static double getCpus(Protos.OfferFilters.MinAllocatableResources aMinAllocatableResources, double aDefaultValue) {
+        return getNamedAllocatableResourceScalar(MesosConstants.SCALAR_CPU, aMinAllocatableResources, aDefaultValue);
+    }
+
     public static Protos.Resource createCpuResource(double aCpus) {
         return createNamedScalarResource(MesosConstants.SCALAR_CPU, aCpus);
     }
@@ -53,6 +57,11 @@ public class MesosUtils {
     public static double getGpus(Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
         return getNamedResourceScalar(MesosConstants.SCALAR_GPU, aTaskInfo, aDefaultValue);
     }
+
+    public static double getGpus(Protos.OfferFilters.MinAllocatableResources aMinAllocatableResources, double aDefaultValue) {
+        return getNamedAllocatableResourceScalar(MesosConstants.SCALAR_GPU, aMinAllocatableResources, aDefaultValue);
+    }
+
 
     public static Protos.Resource createGpuResource(double aGpus) {
         return createNamedScalarResource(MesosConstants.SCALAR_GPU, aGpus);
@@ -66,6 +75,10 @@ public class MesosUtils {
         return getNamedResourceScalar(MesosConstants.SCALAR_MEM, aTaskInfo, aDefaultValue);
     }
 
+    public static double getMem(Protos.OfferFilters.MinAllocatableResources aMinAllocatableResources, double aDefaultValue) {
+        return getNamedAllocatableResourceScalar(MesosConstants.SCALAR_MEM, aMinAllocatableResources, aDefaultValue);
+    }
+
     public static Protos.Resource createMemResource(double aMem) {
         return createNamedScalarResource(MesosConstants.SCALAR_MEM, aMem);
     }
@@ -76,6 +89,10 @@ public class MesosUtils {
 
     public static double getDisk(Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {
         return getNamedResourceScalar(MesosConstants.SCALAR_DISK, aTaskInfo, aDefaultValue);
+    }
+
+    public static double getDisk(Protos.OfferFilters.MinAllocatableResources aMinAllocatableResources, double aDefaultValue) {
+        return getNamedAllocatableResourceScalar(MesosConstants.SCALAR_DISK, aMinAllocatableResources, aDefaultValue);
     }
 
     public static Protos.Resource createDiskResource(double aDisk) {
@@ -122,6 +139,20 @@ public class MesosUtils {
             return aDefaultValue;
         }
 
+    }
+
+    public static double getNamedAllocatableResourceScalar(String aName, Protos.OfferFilters.MinAllocatableResources aResources, double aDefaultValue) {
+
+        for (Protos.OfferFilters.ResourceQuantities qty : aResources.getQuantitiesList()) {
+            final Map<String, Protos.Value.Scalar> quantitiesMap = qty.getQuantitiesMap();
+
+            if (quantitiesMap.containsKey(aName)) {
+                return quantitiesMap.get(aName).getValue();
+            }
+
+        }
+
+        return aDefaultValue;
     }
 
     public static double getNamedResourceScalar(String aName, Protos.TaskInfoOrBuilder aTaskInfo, double aDefaultValue) {

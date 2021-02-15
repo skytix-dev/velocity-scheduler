@@ -10,6 +10,7 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.mesos.v1.Protos;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 
 @Getter
 @Setter
@@ -28,9 +29,15 @@ public class VelocityTask implements Task {
     private boolean running = false;
     @Builder.Default
     private int taskRetries = 0;
+    @Builder.Default
+    private int missedOffers = 0;
 
     public void incrementRetry() {
         taskRetries++;
+    }
+
+    public void incrementMissedOffers() {
+        missedOffers++;
     }
 
     public boolean isComplete() {
@@ -46,6 +53,7 @@ public class VelocityTask implements Task {
 
         return new CompareToBuilder()
                 .append(this.created, o.created)
+                .append(this.missedOffers, o.missedOffers, Comparator.reverseOrder())
                 .append(this.taskDefinition.getTaskInfo().getTaskId().getValue(), o.taskDefinition.getTaskInfo().getTaskId().getValue())
                 .toComparison();
     }

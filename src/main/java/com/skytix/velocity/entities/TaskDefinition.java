@@ -13,7 +13,7 @@ import java.util.Collections;
 import java.util.List;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 public class TaskDefinition {
     private final Protos.TaskInfo.Builder taskInfo;
     private final Enum<? extends Priority> priority;
@@ -39,6 +39,10 @@ public class TaskDefinition {
                 .yieldToHigherPriority(aYieldToHigherPriority)
                 .conditions(aConditions != null ? Arrays.asList(aConditions) : Collections.emptyList())
                 .build();
+    }
+
+    public static TaskDefinition from(TaskDefinition aBaseDefinition, Protos.TaskInfo.Builder aTaskInfo) {
+        return aBaseDefinition.toBuilder().taskInfo(aTaskInfo).build();
     }
 
     public String getTaskId() {
